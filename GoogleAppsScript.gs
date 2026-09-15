@@ -72,13 +72,15 @@ const ORDER_TRANSITIONS={NEW:['CHECKING','CANCELLED'],CHECKING:['PREPARING','CAN
 const PASSWORD_ALGO='ITERATED-HMAC-SHA256-6000';
 const KNOWN_INSECURE_OWNER_HASH='77acc467d71ca17d5a480aa17d8b0b05d536139a61c99a08d1573dd81eab7d03';
 const PUBLIC_CACHE_KEY='public-catalog-v20-2-theme-performance-2';
+const PUBLIC_CACHE_TTL_SECONDS=75;
+const SESSION_LOCATION_CACHE_TTL_SECONDS=21600;
 const ADMIN_DASHBOARD_CACHE_KEY='admin-dashboard-v20-2-shell-performance-1';
 const ADMIN_DASHBOARD_SETTINGS_CACHE_KEY='admin-dashboard-settings-v20-2-shell-performance-1';
 const ADMIN_SCOPED_SETTINGS_CACHE_KEY='admin-scoped-settings-v20-2-production-polish-1';
 const ADMIN_DASHBOARD_SETTING_FIELDS=['shopName','ownerName','themeDefault','themePrimaryColor','themeAccentColor','themeBackgroundColor','themeButtonColor','themeImportantColor','autoLockMinutes'];
 const PRODUCTION_SPREADSHEET_ID='1AXYpPnrBRQPYhdDYODV80S4UTz5-gLEXIO_Jn8Rt-sM';
 const TEST_SPREADSHEET_ID='1WPtJgFe7jswHafieD7zJ19pjSxrdFZACT4iLCi_PfLM';
-const PUBLIC_CACHE_MUTATIONS=['createOrder','upsert','delete','softDelete','restoreTrash','permanentDelete','bulkUpdate','saveSettings','deleteProductSubcategory','adjustStock','setStock','upsertPromotion','deletePromotion','updateOrder','archiveOrder','restoreArchivedOrder','restoreBackup','applyImageZip'];
+const PUBLIC_CACHE_MUTATIONS=['createOrder','upsert','delete','softDelete','restoreTrash','permanentDelete','bulkUpdate','saveSettings','deleteProductSubcategory','adjustStock','setStock','syncStock','upsertPromotion','deletePromotion','updateOrder','archiveOrder','restoreArchivedOrder','restoreBackup','applyImageZip'];
 
 function doGet(e){
   try {
@@ -87,7 +89,7 @@ function doGet(e){
 }
 
 function doPost(e){
-  let publicAction=false;
+  let publicAction=false,publicCacheMutation=false;
   try {
     const rawBody=(e.postData&&e.postData.contents)||'{}';
     const bulkImageRequest=/"action"\s*:\s*"(?:previewImageZip|applyImageZip)"/.test(rawBody),singleImageRequest=/"action"\s*:\s*"uploadImage"/.test(rawBody);
@@ -120,7 +122,8 @@ function doPost(e){
     const session=getSession(body.token,true);
     if(!session) throw Error('กรุณาเข้าสู่ระบบใหม่');
     const actor={userId:String(session.userId),role:String(session.role||'VIEWER')};
-    if(PUBLIC_CACHE_MUTATIONS.includes(body.action)){invalidatePublicCache();invalidateAdminDashboardCaches();}
+    publicCacheMutation=PUBLIC_CACHE_MUTATIONS.includes(body.action);
+    if(publicCacheMutation){invalidatePublicCache();invalidateAdminDashboardCaches();}
     const adminWriteActions=['upsert','delete','softDelete','restoreTrash','permanentDelete','bulkUpdate','saveSettings','deleteProductSubcategory','uploadImage','previewImageZip','applyImageZip','importWikiImage','attachWikiMetadata','upsertPromotion','deletePromotion','createBackup','restoreBackup','setupBackupTrigger','deleteBackup','saveSecurityUser','adjustStock','setStock','syncStock','markOrderSpam','saveFacebookBumpPost','deleteFacebookBumpPost','toggleFacebookBumpPost','queueFacebookBumpNow','cancelFacebookBumpJob','retryFacebookBumpJob','saveFacebookBumpSettings','pauseAllFacebookBumps','resumeAllFacebookBumps','ensureFacebookBumpTrigger','disableFacebookBumpTrigger','queueFacebookWorkerCommand','pairFacebookWorker','revokeFacebookWorkerPair'];
     const staffWriteActions=['updateOrder','updateOrderItemPick','updateCustomer','addCustomerInteraction'];
     if(adminWriteActions.includes(body.action)) requireRole(body.token,['OWNER','ADMIN']);
@@ -134,7 +137,7 @@ function doPost(e){
       case'restoreTrash': return restoreTrash(body.trashId,actor.userId);
       case'permanentDelete': return permanentDelete(body.trashId,actor.userId);
       case'bulkUpdate': return bulkUpdate(body.records,body.changes,actor.userId);
-      case'saveSettings': requireRole(body.token,['OWNER','ADMIN']);return saveSettings(body.settings,actor.userId);
+      case'saveSettings': requireRole(body.token,['OWNER','ADMIN']);return saveSettings(body.settings,actor.userId,body.expectedSubcategoriesJson);
       case'deleteProductSubcategory': return deleteProductSubcategory(body,actor.userId);
       case'updateOrder': return updateOrder(body,actor.userId);
       case'updateOrderItemPick': return updateOrderItemPick(body,actor.userId);
@@ -180,6 +183,11 @@ function doPost(e){
       default: throw Error('ไม่รู้จักคำสั่ง');
     }
   } catch(err){ return publicAction?publicFailure(err):output({ok:false,error:safeAdminError(err)}); }
+  finally{
+    // Clear again after the mutation finishes so a concurrent read cannot keep
+    // a pre-mutation snapshot alive for the longer public cache window.
+    if(publicCacheMutation){try{invalidatePublicCache();invalidateAdminDashboardCaches();}catch(ignore){}}
+  }
 }
 
 let ACTIVE_SPREADSHEET=null;
@@ -338,7 +346,7 @@ function getSession(token,touch){
   if(!row){
     // Sessions is intentionally compact. A single range read is faster and
     // more predictable than TextFinder + header + row round trips on cold runs.
-    const all=s.getDataRange().getValues();if(all.length<2)return null;h=all[0].map(String);const tokenColumn=h.indexOf('token'),index=all.findIndex((candidate,i)=>i>0&&String(candidate[tokenColumn])===String(token));if(index<1)return null;row=index+1;v=all[index];try{cache.put(cacheKey,JSON.stringify({row,headers:h}),300);}catch(ignore){}
+    const all=s.getDataRange().getValues();if(all.length<2)return null;h=all[0].map(String);const tokenColumn=h.indexOf('token'),index=all.findIndex((candidate,i)=>i>0&&String(candidate[tokenColumn])===String(token));if(index<1)return null;row=index+1;v=all[index];try{cache.put(cacheKey,JSON.stringify({row,headers:h}),SESSION_LOCATION_CACHE_TTL_SECONDS);}catch(ignore){}
   }
   const now=Date.now(),statusColumn=h.indexOf('status'),expiresColumn=h.indexOf('expiresAt'),lastSeenColumn=h.indexOf('lastSeenAt');
   if(String(v[statusColumn])!=='ACTIVE')return null;if(new Date(v[expiresColumn]).getTime()<now){s.getRange(row,statusColumn+1).setValue('EXPIRED');clearSessionLocation(token);return null;}
@@ -362,7 +370,7 @@ function login(b){
     if(!valid){const count=number(v[i][h.indexOf('failedLoginCount')])+1;u.getRange(row,h.indexOf('failedLoginCount')+1).setValue(count);if(count>=5)u.getRange(row,h.indexOf('lockedUntil')+1).setValue(new Date(Date.now()+15*60000));securityLog('LOGIN_FAILED',id,'INVALID_CREDENTIALS');throw Error(count>=5?'บัญชีถูกล็อกชั่วคราว กรุณาลองใหม่ภายหลัง':'ไอดีหรือรหัสผ่านไม่ถูกต้อง');}
     const passwordUpgrade=algo!==PASSWORD_ALGO?securePasswordRecord(password):!fastStored?{fastHash:passwordFastHash(password,salt),fastAlgo:PASSWORD_FAST_ALGO}:null;
     const token=Utilities.getUuid()+Utilities.getUuid(),days=Math.max(1,Math.min(30,Number(properties.SESSION_DAYS||7)||7)),expires=new Date(now.getTime()+days*86400000),role=String(v[i][h.indexOf('role')]||'VIEWER');
-    db.getSheetByName(SHEETS.sessions).appendRow([token,id,role,now,expires,now,'ACTIVE']);const needsUserWrite=!!passwordUpgrade||number(v[i][h.indexOf('failedLoginCount')])>0||!!lockedAt;if(needsUserWrite){const updatedUser=v[i].slice();if(passwordUpgrade){if(passwordUpgrade.hash){updatedUser[h.indexOf('passwordHash')]=passwordUpgrade.hash;updatedUser[h.indexOf('passwordSalt')]=passwordUpgrade.salt;updatedUser[h.indexOf('passwordAlgo')]=passwordUpgrade.algo;}updatedUser[h.indexOf('passwordFastHash')]=passwordUpgrade.fastHash;updatedUser[h.indexOf('passwordFastAlgo')]=passwordUpgrade.fastAlgo;}updatedUser[h.indexOf('failedLoginCount')]=0;updatedUser[h.indexOf('lockedUntil')]='';u.getRange(row,1,1,h.length).setValues([updatedUser]);}
+    const sessionSheet=db.getSheetByName(SHEETS.sessions);sessionSheet.appendRow([token,id,role,now,expires,now,'ACTIVE']);try{CacheService.getScriptCache().put(sessionLocationCacheKey(token),JSON.stringify({row:sessionSheet.getLastRow(),headers:HEADERS.sessions}),SESSION_LOCATION_CACHE_TTL_SECONDS);}catch(ignore){}const needsUserWrite=!!passwordUpgrade||number(v[i][h.indexOf('failedLoginCount')])>0||!!lockedAt;if(needsUserWrite){const updatedUser=v[i].slice();if(passwordUpgrade){if(passwordUpgrade.hash){updatedUser[h.indexOf('passwordHash')]=passwordUpgrade.hash;updatedUser[h.indexOf('passwordSalt')]=passwordUpgrade.salt;updatedUser[h.indexOf('passwordAlgo')]=passwordUpgrade.algo;}updatedUser[h.indexOf('passwordFastHash')]=passwordUpgrade.fastHash;updatedUser[h.indexOf('passwordFastAlgo')]=passwordUpgrade.fastAlgo;}updatedUser[h.indexOf('failedLoginCount')]=0;updatedUser[h.indexOf('lockedUntil')]='';u.getRange(row,1,1,h.length).setValues([updatedUser]);}
     return output({ok:true,token,user:{userId:id,displayName:String(v[i][h.indexOf('displayName')]||id),role,mustChangePassword:String(v[i][h.indexOf('mustChangePassword')]||'FALSE')==='TRUE'},expiresAt:expires});
   }registerUnknownLoginFailure(id);securityLog('LOGIN_FAILED',id,'UNKNOWN_USER');throw Error('ไอดีหรือรหัสผ่านไม่ถูกต้อง');
 }
@@ -421,31 +429,35 @@ function pickFields(source,fields){const out={};fields.forEach(k=>{if(source[k]!
 function publicProduct(product){const out=pickFields(product,PUBLIC_PRODUCT_FIELDS);out.availableStock=availableQty(product.stock,product.reservedStock);Object.keys(out).forEach(k=>{if(out[k]===undefined||out[k]===null||out[k]===''||(Array.isArray(out[k])&&!out[k].length))delete out[k];});return out;}
 function publicSettings(){const all={};existingRows(SHEETS.settings).forEach(x=>{if(PUBLIC_SETTING_FIELDS.includes(String(x.key)))all[x.key]=smart(x.value);});return all;}
 function publicPromotion(p){return pickFields(p,PUBLIC_PROMOTION_FIELDS);}
-function invalidatePublicCache(){const cache=CacheService.getScriptCache(),meta=Number(cache.get(PUBLIC_CACHE_KEY+'-count')||0),keys=[PUBLIC_CACHE_KEY+'-count'];for(let i=0;i<meta;i++)keys.push(PUBLIC_CACHE_KEY+'-'+i);cache.removeAll(keys);}
-function getCachedPublic(){const cache=CacheService.getScriptCache(),count=Number(cache.get(PUBLIC_CACHE_KEY+'-count')||0);if(!count)return null;const keys=Array.from({length:count},(_,i)=>PUBLIC_CACHE_KEY+'-'+i),parts=cache.getAll(keys);let json='';for(const key of keys){if(parts[key]===undefined)return null;json+=parts[key];}try{return JSON.parse(json);}catch(e){return null;}}
-function putCachedPublic(data){const cache=CacheService.getScriptCache(),json=JSON.stringify(data),size=30000,count=Math.ceil(json.length/size),entries={};entries[PUBLIC_CACHE_KEY+'-count']=String(count);for(let i=0;i<count;i++)entries[PUBLIC_CACHE_KEY+'-'+i]=json.slice(i*size,(i+1)*size);cache.putAll(entries,20);}
+// Each reader keeps its starting generation. A read that finishes after an
+// invalidation can only fill the retired generation, never the current cache.
+function readCacheKey(base){const cache=CacheService.getScriptCache(),key=base+'-generation';let generation=cache.get(key);if(!generation){generation=Utilities.getUuid();cache.put(key,generation,21600);}return base+'-'+generation;}
+function advanceCacheGeneration(bases){const entries={};bases.forEach(base=>{entries[base+'-generation']=Utilities.getUuid();});CacheService.getScriptCache().putAll(entries,21600);}
+function invalidatePublicCache(){advanceCacheGeneration([PUBLIC_CACHE_KEY]);}
+function getCachedPublic(key){const cache=CacheService.getScriptCache();key=key||readCacheKey(PUBLIC_CACHE_KEY);const count=Number(cache.get(key+'-count')||0);if(!count)return null;const keys=Array.from({length:count},(_,i)=>key+'-'+i),parts=cache.getAll(keys);let json='';for(const part of keys){if(parts[part]===undefined)return null;json+=parts[part];}try{return JSON.parse(json);}catch(e){return null;}}
+function putCachedPublic(data,key){const cache=CacheService.getScriptCache();key=key||readCacheKey(PUBLIC_CACHE_KEY);const json=JSON.stringify(data),size=30000,count=Math.ceil(json.length/size),entries={};entries[key+'-count']=String(count);for(let i=0;i<count;i++)entries[key+'-'+i]=json.slice(i*size,(i+1)*size);cache.putAll(entries,PUBLIC_CACHE_TTL_SECONDS);}
 function readPublic(){
-  const cached=getCachedPublic();if(cached)return cached;
+  const cacheKey=readCacheKey(PUBLIC_CACHE_KEY),cached=getCachedPublic(cacheKey);if(cached)return cached;
   const seals=existingRows(SHEETS.seals).filter(x=>x.id&&x.name).map(normalizeSeal).filter(x=>!['HIDDEN','INACTIVE'].includes(String(x.status))).map(publicProduct);
   const allItems=existingRows(SHEETS.items).filter(x=>x.id&&x.name).map(normalizeItem).filter(x=>!['HIDDEN','INACTIVE'].includes(String(x.status))),gameItems=allItems.filter(x=>x.kind==='ITEM').map(publicProduct),moneyT=allItems.find(x=>x.kind==='TMONEY');
   const services=existingRows(SHEETS.services).filter(x=>x.id&&x.name).map(normalizeService).filter(x=>!['HIDDEN','INACTIVE'].includes(String(x.status))).map(publicProduct);
   const promotions=existingRows(SHEETS.promotions).filter(x=>x.promotionId&&x.name).map(normalizePromotion).filter(p=>p.status==='ACTIVE').map(publicPromotion);
-  const result={seals,gameItems,services,moneyT:moneyT?publicProduct(moneyT):null,settings:publicSettings(),promotions,stockUpdatedAt:stockUpdatedAt()};putCachedPublic(result);return result;
+  const result={seals,gameItems,services,moneyT:moneyT?publicProduct(moneyT):null,settings:publicSettings(),promotions,stockUpdatedAt:stockUpdatedAt()};putCachedPublic(result,cacheKey);return result;
 }
-function invalidateAdminDashboardCaches(){CacheService.getScriptCache().removeAll([ADMIN_DASHBOARD_CACHE_KEY,ADMIN_DASHBOARD_SETTINGS_CACHE_KEY,ADMIN_SCOPED_SETTINGS_CACHE_KEY]);}
+function invalidateAdminDashboardCaches(){advanceCacheGeneration([ADMIN_DASHBOARD_CACHE_KEY,ADMIN_DASHBOARD_SETTINGS_CACHE_KEY,ADMIN_SCOPED_SETTINGS_CACHE_KEY]);}
 function cachedAdminDashboardSettings(forceRefresh){
-  const cache=CacheService.getScriptCache();if(!forceRefresh){const cached=cache.get(ADMIN_DASHBOARD_SETTINGS_CACHE_KEY);if(cached)try{return JSON.parse(cached);}catch(e){}}
+  const cache=CacheService.getScriptCache(),cacheKey=readCacheKey(ADMIN_DASHBOARD_SETTINGS_CACHE_KEY);if(!forceRefresh){const cached=cache.get(cacheKey);if(cached)try{return JSON.parse(cached);}catch(e){}}
   // Reuse the common Settings read so opening another admin section directly
   // after Dashboard does not immediately read the same sheet again.
   const scoped=cachedAdminScopedSettings(forceRefresh),all={};ADMIN_DASHBOARD_SETTING_FIELDS.forEach(key=>{if(Object.prototype.hasOwnProperty.call(scoped,key))all[key]=scoped[key];});
-  cache.put(ADMIN_DASHBOARD_SETTINGS_CACHE_KEY,JSON.stringify(all),300);return all;
+  cache.put(cacheKey,JSON.stringify(all),300);return all;
 }
 function cachedAdminScopedSettings(forceRefresh){
-  const cache=CacheService.getScriptCache();if(!forceRefresh){const cached=cache.get(ADMIN_SCOPED_SETTINGS_CACHE_KEY);if(cached)try{return JSON.parse(cached);}catch(e){}}
-  const all={};existingRows(SHEETS.settings).forEach(x=>{const key=String(x.key);if(key!=='apiKey')all[key]=smart(x.value);});try{cache.put(ADMIN_SCOPED_SETTINGS_CACHE_KEY,JSON.stringify(all),300);}catch(ignore){}return all;
+  const cache=CacheService.getScriptCache(),cacheKey=readCacheKey(ADMIN_SCOPED_SETTINGS_CACHE_KEY);if(!forceRefresh){const cached=cache.get(cacheKey);if(cached)try{return JSON.parse(cached);}catch(e){}}
+  const all={};existingRows(SHEETS.settings).forEach(x=>{const key=String(x.key);if(key!=='apiKey')all[key]=smart(x.value);});try{cache.put(cacheKey,JSON.stringify(all),300);}catch(ignore){}return all;
 }
 function dashboardSummary(forceRefresh){
-  const cache=CacheService.getScriptCache();if(!forceRefresh){const cached=cache.get(ADMIN_DASHBOARD_CACHE_KEY);if(cached)try{return JSON.parse(cached);}catch(e){}}
+  const cache=CacheService.getScriptCache(),cacheKey=readCacheKey(ADMIN_DASHBOARD_CACHE_KEY);if(!forceRefresh){const cached=cache.get(cacheKey);if(cached)try{return JSON.parse(cached);}catch(e){}}
   const seals=rowsFields(SHEETS.seals,['id','name','category','status','stock','reservedStock','lowStockAlert']).filter(x=>x.id&&x.name),allItems=rowsFields(SHEETS.items,['id','name','status','stock','reservedStock','lowStockAlert']).filter(x=>x.id&&x.name),services=rowsFields(SHEETS.services,['id','name','status','stock']).filter(x=>x.id&&x.name),products=seals.concat(allItems,services);
   const orders=rowsFields(SHEETS.orders,['total','status','deletedAt'],600).reverse().filter(x=>!x.deletedAt).slice(0,500),customers=rowsFields(SHEETS.customers,['orderCount'],1500).reverse(),customerSheet=ss().getSheetByName(SHEETS.customers),customerCount=Math.max(0,(customerSheet?customerSheet.getLastRow():1)-1),promotions=rowsFields(SHEETS.promotions,['promotionId','name','status']),available=p=>availableQty(p.stock,p.reservedStock),status=x=>String(x.status||'ACTIVE');
   const completed=orders.filter(x=>status(x)==='COMPLETED');
@@ -461,7 +473,7 @@ function dashboardSummary(forceRefresh){
     repeatCustomers:customers.filter(x=>number(x.orderCount)>=2).length,
     activePromos:promotions.filter(x=>status(x)==='ACTIVE').length,
     categoryCounts:['AT','HT','CT','HP','DS','DE','EV','BL'].map(category=>[category,seals.filter(x=>String(x.category)===category).length])
-  };cache.put(ADMIN_DASHBOARD_CACHE_KEY,JSON.stringify(result),180);return result;
+  };cache.put(cacheKey,JSON.stringify(result),180);return result;
 }
 function readAdmin(actor,requestedScope,forceRefresh,targetId){
   const scope=String(requestedScope||'ALL'),all=scope==='ALL',needs=(...names)=>all||names.includes(scope);
@@ -648,7 +660,14 @@ function productSubcategoryUsage(kind,value){
   const normalizedKind=String(kind||'').trim().toUpperCase(),normalizedValue=String(value||'').trim().toUpperCase(),targets={SEAL:[SHEETS.seals,'section'],ITEM:[SHEETS.items,'itemCategory'],SERVICE:[SHEETS.services,'serviceCategory']},target=targets[normalizedKind];
   if(!target)throw Error('ไม่รองรับการลบหมวดย่อยของประเภท '+(normalizedKind||'-'));
   if(!normalizedValue)throw Error('รหัสหมวดย่อยไม่ถูกต้อง');
-  return existingRows(target[0]).filter(row=>String(row.id||'').trim()&&String(row[target[1]]||'').trim().toUpperCase()===normalizedValue).length;
+  const matches=row=>String(row.id||'').trim()&&String(row[target[1]]||'').trim().toUpperCase()===normalizedValue;
+  const live=existingRows(target[0]).filter(matches).length;
+  const recoverable=existingRows(SHEETS.trash).filter(row=>{
+    if(String(row.kind||'').toUpperCase()!==normalizedKind)return false;
+    let data;try{data=JSON.parse(String(row.dataJson||'{}'));}catch(error){throw Error('ข้อมูลสินค้าในถังขยะอ่านไม่ได้ กรุณาตรวจข้อมูลก่อนลบหมวดย่อย');}
+    return matches(data);
+  }).length;
+  return live+recoverable;
 }
 function productSubcategoriesFromSettingsValues(values){
   const rows=Array.isArray(values)?values:[],headers=(rows[0]||HEADERS.settings).map(String),keyColumn=headers.indexOf('key'),valueColumn=headers.indexOf('value');
@@ -659,18 +678,18 @@ function assertProductSubcategoryRemovalsUnused(previous,next){
   const nextKeys=new Set((next||[]).map(item=>String(item.kind||'').toUpperCase()+'|'+String(item.value||'').trim().toUpperCase()));
   (previous||[]).forEach(item=>{
     const key=String(item.kind||'').toUpperCase()+'|'+String(item.value||'').trim().toUpperCase();if(nextKeys.has(key))return;
-    const count=productSubcategoryUsage(item.kind,item.value);if(count)throw Error('ลบหมวดย่อย "'+String(item.label||item.value)+'" ไม่ได้ เพราะมีสินค้าใช้งานอยู่ '+count+' รายการ');
+    const count=productSubcategoryUsage(item.kind,item.value);if(count)throw Error('ลบหมวดย่อย "'+String(item.label||item.value)+'" ไม่ได้ เพราะมีสินค้าผูกอยู่ '+count+' รายการ (รวมสินค้าที่กู้คืนได้ในถังขยะ)');
   });
 }
-function saveSettings(settingsObj,actor){return withLock(()=>{
+function saveSettings(settingsObj,actor,expectedSubcategoriesJson){return withLock(()=>{
   const s=sheet(SHEETS.settings,HEADERS.settings),values=s.getDataRange().getValues(),submitted={...(settingsObj||{})},rowByKey=new Map(),categoryDiscountKeys=new Set(['categoryDiscountSealPercent','categoryDiscountItemPercent','categoryDiscountServicePercent']),themeColorKeys=new Set(['themePrimaryColor','themeAccentColor','themeBackgroundColor','themeButtonColor','themeImportantColor']);for(let i=1;i<values.length;i++)rowByKey.set(String(values[i][0]),i+1);
-  if(Object.prototype.hasOwnProperty.call(submitted,'productSubcategoriesJson')){const previous=productSubcategoriesFromSettingsValues(values),next=normalizeProductSubcategories(submitted.productSubcategoriesJson);assertProductSubcategoryRemovalsUnused(previous,next);submitted.productSubcategoriesJson=JSON.stringify(next);}
+  if(Object.prototype.hasOwnProperty.call(submitted,'productSubcategoriesJson')){const previous=productSubcategoriesFromSettingsValues(values),next=normalizeProductSubcategories(submitted.productSubcategoriesJson);if(expectedSubcategoriesJson!==undefined&&JSON.stringify(normalizeProductSubcategories(expectedSubcategoriesJson))!==JSON.stringify(previous))throw Error('หมวดย่อยถูกแก้ไขจากแท็บอื่นแล้ว กรุณาโหลดล่าสุดก่อนบันทึกอีกครั้ง');assertProductSubcategoryRemovalsUnused(previous,next);submitted.productSubcategoriesJson=JSON.stringify(next);}
   Object.keys(submitted).forEach(k=>{let value=categoryDiscountKeys.has(k)?Math.max(0,Math.min(100,number(submitted[k]))):submitted[k];if(themeColorKeys.has(k)){value=String(value||'').trim().toUpperCase();if(!/^#[0-9A-F]{6}$/.test(value))value=DEFAULT_SETTINGS[k];}if(k==='themeDefault')value=String(value).toUpperCase()==='LIGHT'?'LIGHT':'DARK';if(k==='orderCopyTemplate')value=safeSheetText(String(value||''),12000);if(['websiteIntroText','websiteAnnouncement','websitePromotionText','websiteImportantNotice'].includes(k))value=safeSheetText(String(value||''),3000);const row=rowByKey.get(k);if(!row){s.appendRow([k,value,'']);rowByKey.set(k,s.getLastRow());}else s.getRange(row,2).setValue(value);if(categoryDiscountKeys.has(k))s.getRange(rowByKey.get(k),2).setNumberFormat('0.##');});if(Object.prototype.hasOwnProperty.call(submitted,'sessionDays'))PropertiesService.getScriptProperties().setProperty('SESSION_DAYS',String(submitted.sessionDays));
   invalidateAdminDashboardCaches();log('SETTINGS','SYSTEM','','',actor||'SYSTEM');return output({ok:true});
 });}
 function deleteProductSubcategory(b,actor){return withLock(()=>{
   const kind=String(b.kind||'').trim().toUpperCase(),value=String(b.value||'').trim(),requestedId=String(b.categoryId||b.id||'').trim(),usageCount=productSubcategoryUsage(kind,value);
-  if(usageCount)throw Error('ลบหมวดย่อยไม่ได้ เพราะมีสินค้าใช้งานอยู่ '+usageCount+' รายการ');
+  if(usageCount)throw Error('ลบหมวดย่อยไม่ได้ เพราะมีสินค้าผูกอยู่ '+usageCount+' รายการ (รวมสินค้าที่กู้คืนได้ในถังขยะ)');
   const s=sheet(SHEETS.settings,HEADERS.settings),values=s.getDataRange().getValues(),categories=productSubcategoriesFromSettingsValues(values),index=categories.findIndex(item=>String(item.kind).toUpperCase()===kind&&String(item.value).trim().toUpperCase()===value.toUpperCase());
   if(index<0)throw Error('ไม่พบหมวดย่อยใน Settings');
   const removed=categories[index];if(requestedId&&String(removed.id)!==requestedId)throw Error('ข้อมูลหมวดย่อยเปลี่ยนไป กรุณารีโหลดแล้วลองใหม่');
@@ -871,7 +890,8 @@ function attachWikiMetadata(b){return withLock(()=>{
 
 function imageFolder(){let folders=DriveApp.getFoldersByName('DMO-Toolbox-Images');return folders.hasNext()?folders.next():DriveApp.createFolder('DMO-Toolbox-Images');}
 function saveBlobToDrive(blob,fileName){
-  blob.setName(fileName||blob.getName()||'image.png');const file=imageFolder().createFile(blob);file.setSharing(DriveApp.Access.ANYONE_WITH_LINK,DriveApp.Permission.VIEW);
+  blob.setName(fileName||blob.getName()||'image.png');const file=imageFolder().createFile(blob);
+  try{file.setSharing(DriveApp.Access.ANYONE_WITH_LINK,DriveApp.Permission.VIEW);}catch(error){try{file.setTrashed(true);}catch(ignore){}throw Error('เปิดสิทธิ์อ่านรูปจาก Google Drive ไม่สำเร็จ กรุณาตรวจสิทธิ์ของบัญชีที่ Deploy แล้วลองใหม่ รูปสินค้าเดิมยังไม่ถูกเปลี่ยน');}
   return'https://drive.google.com/thumbnail?id='+file.getId()+'&sz=w1200';
 }
 function uploadImage(b){

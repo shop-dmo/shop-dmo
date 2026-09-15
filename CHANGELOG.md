@@ -2,6 +2,17 @@
 
 Owner display: disabled
 
+## V20.2.4 — Cross-tab refresh and upload safety
+
+- Retired cache generations prevent late Dashboard, Settings, or public catalog reads from repopulating a cache after Archive/Restore and other mutations.
+- Successful non-Facebook mutations invalidate shared browser caches. Old in-flight responses are discarded, while unrelated page loads cannot erase an open form.
+- Storefront tabs reuse genuinely newer snapshots and retain scroll/cart state; a refresh claim no longer masquerades as new data.
+- Image preparation is tied to its exact input/record, all images are decoded, and upload saves snapshot the form before awaiting the upload and block duplicate clicks.
+- Newly uploaded Drive files are moved to Trash if public sharing fails; the existing product image is preserved.
+- Subcategory deletion also checks recoverable Trash, and category edits reject stale whole-list updates from another tab.
+- Added executable frontend/backend race tests, with unchanged pricing, discount, D2, Facebook Worker and send logic.
+- PWA assets advance to `stability-7`; no PC2 restart or session changes are performed by this release.
+
 ## V20.2.3 — Admin performance and reliability
 
 - Admin sections now load independently, so a slow Dashboard request no longer blocks Orders, Customers, or Settings.
@@ -12,6 +23,8 @@ Owner display: disabled
 - Storefront background refresh runs only in a visible storefront tab and coordinates across tabs with a Web Lock plus timestamp fallback.
 - Read-only requests have a 30-second total budget, clear errors, and retry only when enough time remains.
 - PWA shell cache advanced to `admin-performance-6` so old frontend assets are replaced safely.
+- Public catalog cache now survives one normal refresh interval, while post-mutation invalidation prevents a concurrent request from retaining stale product/stock data.
+- Login seeds a six-hour row pointer for its new session; every request still revalidates the live token, status, and expiry before use.
 
 ## V20.1 Release Candidate — Order operations safety
 

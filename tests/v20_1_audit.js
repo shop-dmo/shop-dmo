@@ -147,7 +147,7 @@ check('25. Shop identity settings and blank values', () => {
   assert(app.includes("shopName: document.getElementById('setShopName').value.trim()"), 'ชื่อร้านไม่ได้บันทึกค่าที่ตัดช่องว่างแล้ว');
   assert(app.includes("ownerName: document.getElementById('setOwnerName').value.trim()"), 'ชื่อเจ้าของไม่ได้บันทึกค่าที่ตัดช่องว่างแล้ว');
   const saveSettingsSource = app.slice(app.indexOf('async function saveSettingsAction()'), app.indexOf('async function adjustStockAction'));
-  assert(saveSettingsSource.includes('await loadAdmin(true);') && saveSettingsSource.includes('state.publicLoadedAt=0;'), 'หลังบันทึก Settings ยังใช้ Admin cache เก่าหรือไม่ได้ mark หน้าร้านให้โหลดใหม่');
+  assert(saveSettingsSource.includes("await loadAdmin(true,'settings');") && saveSettingsSource.includes('state.publicLoadedAt=0;'), 'หลังบันทึก Settings ยังใช้ Admin cache เก่าหรือไม่ได้ mark หน้าร้านให้โหลดใหม่');
   const identitySource = app.slice(app.indexOf('const hasOwn ='), app.indexOf('const safeExternalUrl'));
   const identityContext = { cfg:{shopName:'Config Shop',ownerName:'Config Owner'}, state:{settings:{}} };
   vm.createContext(identityContext);
@@ -222,13 +222,13 @@ check('32. Admin scoped loading and large-list performance', () => {
   assert(app.includes('state.adminLoadedScopes.add(scope)'), 'ไม่มี cache ของ scope ที่โหลดแล้ว');
   assert(app.includes("state.adminView !== 'facebookBump' && !state.adminLoadedScopes.has(state.adminView)"), 'หน้า Admin ยังแสดงข้อมูล bootstrap เป็นศูนย์ก่อน scope โหลดเสร็จ');
   assert(app.includes('id="retryAdminScopeBtn"'), 'หน้า Admin ไม่มีทาง retry เมื่อโหลด scope ไม่สำเร็จ');
-  assert(app.includes('state.adminLoading=adminLoadPromises.size>0;render();') && app.includes('state.adminScopeErrors[scope]=error.message'), 'สถานะโหลด Admin ไม่ render ใหม่หรือไม่แสดงข้อผิดพลาดหลัง request ล้มเหลว');
+  assert(app.includes('state.adminLoading=adminLoadPromises.size>0;renderAdminLoad(scope);') && app.includes('state.adminScopeErrors[scope]=error.message'), 'สถานะโหลด Admin ไม่ render ใหม่หรือไม่แสดงข้อผิดพลาดหลัง request ล้มเหลว');
   const ordersSource=app.slice(app.indexOf('function adminOrders()'),app.indexOf('function integrityPage'));
   assert(ordersSource.includes('itemsByOrder=new Map()'), 'หน้าออเดอร์ยังไม่มีดัชนี Order Items');
   assert(!ordersSource.includes('itemRows.filter('), 'หน้าออเดอร์ยัง scan Order Items ซ้ำต่อออเดอร์');
   ['adminOrderVisible','adminCatalogVisible','inventoryVisible','customerVisible'].forEach(key=>assert(app.includes(key),`ไม่มี batch limit: ${key}`));
   ['loadMoreOrdersBtn','loadMoreAdminCatalogBtn','loadMoreInventoryBtn','loadMoreCustomersBtn'].forEach(id=>assert(app.includes(id),`ไม่มีปุ่มแสดงเพิ่ม: ${id}`));
-  assert(read('index.html').includes('20260911-v20.2-admin-performance-6')&&read('sw.js').includes('gun-shop-dmo-v20-2-admin-performance-6'),'PWA cache version ยังไม่ตรงกับ admin performance build');
+  assert(read('index.html').includes('20260915-v20.2-stability-7')&&read('sw.js').includes('gun-shop-dmo-v20-2-stability-7'),'PWA cache version ยังไม่ตรงกับ admin performance build');
 });
 
 [

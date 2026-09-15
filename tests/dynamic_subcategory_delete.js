@@ -102,3 +102,19 @@ for(const [kind,value,count] of [['SEAL','USED',2],['ITEM','ITEM_USED',1],['SERV
 }
 
 console.log('PASS dynamic subcategory server delete: exact all-status usage counts, fail-closed kinds, stale-write protection, cache/audit, and saveSettings defense');
+
+{
+  const sheetObject=settingsSheet();installStubs(sheetObject);const before=sheetObject.values[1][1];
+  catalog.Trash=[{kind:'SEAL',dataJson:JSON.stringify({id:'S-TRASH',section:'UNUSED'})}];
+  assert.throws(()=>api.deleteProductSubcategory({kind:'SEAL',value:'UNUSED'},'OWNER-1'),/1 รายการ.*ถังขยะ/);
+  assert.strictEqual(sheetObject.values[1][1],before);
+  delete catalog.Trash;
+}
+{
+  const sheetObject=settingsSheet();installStubs(sheetObject);const before=sheetObject.values[1][1];
+  const stale=initialCategories.map(row=>({...row}));stale[0].label='OLD LABEL';
+  assert.throws(()=>api.saveSettings({productSubcategoriesJson:before},'OWNER-1',JSON.stringify(stale)),/แท็บอื่น/);
+  assert.strictEqual(sheetObject.values[1][1],before);
+  assert.equal(api.saveSettings({productSubcategoriesJson:before},'OWNER-1',before).ok,true);
+}
+console.log('PASS recoverable Trash references and concurrent category save rejection');

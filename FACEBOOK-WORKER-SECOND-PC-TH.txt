@@ -21,3 +21,14 @@ GUN SHOP DMO — Facebook Worker (เครื่องที่สอง)
 - รุ่น Worker ที่ต้องแสดงใน /status คือ 20.2.2-performance
 - Telemetry เก็บถาวรใน worker-telemetry.jsonl และผลที่ยังรายงานไม่สำเร็จเก็บใน worker-results.json ภายใน FacebookWorkerProfile
 - ห้ามลบไฟล์ telemetry/result journal ระหว่างกู้ระบบ เพราะใช้ตัดสินว่ารอบใดส่งแล้วและป้องกันการส่งซ้ำ
+
+อัปเดต / ย้อนกลับอย่างปลอดภัย (ทำบน PC2 เมื่อเจ้าของอนุญาตเท่านั้น):
+1. ก่อนเปลี่ยนไฟล์ ตรวจ DRY RUN + Pause All + Posts disabled + Scheduler OFF + Trigger 0 และ Queue PENDING/PROCESSING = 0
+2. หยุด Worker และ Chrome Worker เฉพาะบน PC2 ก่อนสำรอง ห้ามเปิด Worker พร้อมกันสองชุด
+3. เก็บโฟลเดอร์โปรแกรมเดิมไว้ และสำรอง profile/data ของ PC2 ไว้ในที่ส่วนตัว ห้ามรวม profile/session ลง ZIP ที่เผยแพร่
+4. แตก ZIP ใหม่ลงอีกโฟลเดอร์ แล้วเปิด SETUP-FACEBOOK-WORKER.cmd; ห้ามย้าย/ลบ worker-pair.json, worker-results.json/.bak หรือ telemetry ของ profile เดิม
+5. ใช้ Windows user และ profile path เดิม ถ้าเคยตั้ง FACEBOOK_WORKER_PROFILE_DIR แบบกำหนดเองต้องคงค่าเดิม ไม่ต้องแก้ค่าถ้าใช้ค่าเริ่มต้น
+6. เปิด START-FACEBOOK-WORKER.cmd เพียงชุดเดียว ตรวจ ONLINE/RUNNING/CONNECTED/PAIRED ใน DRY RUN ก่อน ห้าม Resume/Scheduler/ส่ง + ระหว่างตรวจ
+7. ถ้ามีปัญหา ให้หยุดชุดใหม่ แล้วกลับมา START จากโฟลเดอร์เดิมพร้อม profile/data เดิม ห้าม Logout/ล้าง session หรือทับ journal ด้วยสำเนาเก่า หากมีงานค้างให้ตรวจ ownership/result ก่อน
+
+Release stability-7 ปรับเว็บและ Apps Script; Worker runtime ยังเป็น 20.2.2-performance เช่นเดิม จึงไม่บังคับ restart PC2 เพียงเพราะอัปเดตเว็บ

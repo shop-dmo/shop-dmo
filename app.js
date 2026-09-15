@@ -12,6 +12,10 @@ const ADMIN_NEUTRAL_SETTINGS = Object.freeze({ shopName: 'SHOP DMO', ownerName: 
 const ADMIN_SHELL_CACHE_KEY = 'dmo_admin_shell_v1';
 const ADMIN_SHELL_CACHE_MAX_AGE_MS = 30 * 60 * 1000;
 const PUBLIC_REFRESH_GATE_KEY = 'dmo_public_refresh_gate_v1';
+const DATA_INVALIDATION_KEY = 'dmo_data_invalidation_v1';
+const READ_CACHE_MUTATIONS = new Set(['createOrder','upsert','delete','softDelete','restoreTrash','permanentDelete','bulkUpdate','saveSettings','deleteProductSubcategory','adjustStock','setStock','syncStock','upsertPromotion','deletePromotion','updateOrder','updateOrderItemPick','markOrderSpam','archiveOrder','restoreArchivedOrder','restoreBackup','applyImageZip','attachWikiMetadata','updateCustomer','addCustomerInteraction']);
+function sharedDataVersion(){try{return localStorage.getItem(DATA_INVALIDATION_KEY)||'';}catch(error){return'';}}
+let dataInvalidationVersion=sharedDataVersion();
 const ADMIN_SHELL_SETTING_KEYS = ['shopName','ownerName','themeDefault','themePrimaryColor','themeAccentColor','themeBackgroundColor','themeButtonColor','themeImportantColor','autoLockMinutes'];
 
 function safeAdminShellSettings(settings) {
@@ -26,7 +30,7 @@ function restoreAdminShellCache() {
   if (!sessionStorage.getItem('dmo_admin_token')) return null;
   try {
     const cached = JSON.parse(sessionStorage.getItem(ADMIN_SHELL_CACHE_KEY) || 'null');
-    if (!cached || !cached.savedAt || Date.now() - Number(cached.savedAt) > ADMIN_SHELL_CACHE_MAX_AGE_MS || !cached.dashboardSummary) return null;
+    if (!cached || String(cached.dataVersion||'')!==dataInvalidationVersion || !cached.savedAt || Date.now() - Number(cached.savedAt) > ADMIN_SHELL_CACHE_MAX_AGE_MS || !cached.dashboardSummary) return null;
     return { savedAt: Number(cached.savedAt), settings: safeAdminShellSettings(cached.settings), dashboardSummary: cached.dashboardSummary, databaseVersion: String(cached.databaseVersion || '') };
   } catch (error) { return null; }
 }
@@ -34,7 +38,7 @@ function restoreAdminShellCache() {
 function saveAdminShellCache(data) {
   if (!state.adminToken || !data?.dashboardSummary) return;
   try {
-    sessionStorage.setItem(ADMIN_SHELL_CACHE_KEY, JSON.stringify({ savedAt: Date.now(), settings: safeAdminShellSettings(data.settings), dashboardSummary: data.dashboardSummary, databaseVersion: String(data.databaseVersion || '') }));
+    sessionStorage.setItem(ADMIN_SHELL_CACHE_KEY, JSON.stringify({ savedAt: Number(state.adminLoadedAtByScope.dashboard)||Date.now(), dataVersion:dataInvalidationVersion, settings: safeAdminShellSettings(data.settings), dashboardSummary: data.dashboardSummary, databaseVersion: String(data.databaseVersion || '') }));
   } catch (error) {}
 }
 
@@ -123,6 +127,9 @@ const state = {
   imageManager: { zipData: '', fileName: '', preview: null, applying: false, allowOverwrite: false },
   recordImageUpload: null,
   servicePosterUpload: null,
+  imagePreparing: {record:null,servicePoster:null},
+  recordSaving: false,
+  settingsSaving: false,
   customerDetailData: { id: '', orders: [], interactions: [], loading: false, error: '', loadedAt: 0 },
   facebookBump: { tab: 'POSTS', edit: null, pending: '', loadingModule: false, loadError: '', loadStartedAt: 0, loadDurationMs: 0, connection: { worker: 'UNKNOWN', browser: 'STOPPED', connection: 'UNKNOWN', paired: false, running: false, lastError: '', account: {} } },
   publicLoadedAt: 0,
@@ -270,7 +277,7 @@ function subcategoryLabel(kind,value){return productSubcategorySettings().find(i
 function subcategoryOptions(kind,current){const rows=subcategoriesFor(kind),hasCurrent=rows.some(row=>row.value===current);return `${!current?'<option value="" selected>ไม่ระบุ</option>':'<option value="">ไม่ระบุ</option>'}${!hasCurrent&&current?`<option value="${html(current)}" selected>${html(subcategoryLabel(kind,current))} (ปิดอยู่)</option>`:''}${rows.map(row=>`<option value="${html(row.value)}" ${row.value===current?'selected':''}>${html(row.label)}</option>`).join('')}`;}
 function renderPreservingScroll(){const windowX=window.scrollX,windowY=window.scrollY,productTop=document.querySelector('.products')?.scrollTop||0,cartTop=document.querySelector('.cart-list')?.scrollTop||0;render();requestAnimationFrame(()=>{window.scrollTo(windowX,windowY);const products=document.querySelector('.products'),cart=document.querySelector('.cart-list');if(products)products.scrollTop=productTop;if(cart)cart.scrollTop=cartTop;});}
 function bindModalDirty(backdropId,kind){const modal=document.getElementById(backdropId);if(!modal)return;modal.querySelectorAll('input,select,textarea').forEach(control=>{const mark=()=>{state.modalDirty[kind]=true;};control.addEventListener('input',mark);control.addEventListener('change',mark);});}
-function closeStateModal(kind){if(kind!=='wiki'&&state.modalDirty[kind]&&!confirm('มีข้อมูลที่แก้ไขแล้วยังไม่ได้บันทึก ต้องการปิดโดยไม่บันทึกหรือไม่?'))return false;if(kind==='record'){state.editRecord=null;state.recordImageUpload=null;}else if(kind==='promo')state.promoEdit=null;else if(kind==='category')state.categoryEdit=null;else if(kind==='wiki')state.wikiGallery=null;if(kind!=='wiki')state.modalDirty[kind]=false;render();return true;}
+function closeStateModal(kind){if(kind==='record'&&state.recordSaving){toast('กำลังบันทึกสินค้า กรุณารอสักครู่');return false;}if(kind!=='wiki'&&state.modalDirty[kind]&&!confirm('มีข้อมูลที่แก้ไขแล้วยังไม่ได้บันทึก ต้องการปิดโดยไม่บันทึกหรือไม่?'))return false;if(kind==='record'){state.editRecord=null;state.recordImageUpload=null;state.imagePreparing.record=null;}else if(kind==='promo')state.promoEdit=null;else if(kind==='category')state.categoryEdit=null;else if(kind==='wiki')state.wikiGallery=null;if(kind!=='wiki')state.modalDirty[kind]=false;render();return true;}
 const safeExternalUrl=(value)=>{try{const url=new URL(String(value||''));return ['https:','http:'].includes(url.protocol)?url.toString():'';}catch(error){return'';}};
 const isVisible = (p) => !['HIDDEN', 'INACTIVE'].includes(String(p.status || 'ACTIVE'));
 const availableStock = (p) => p.availableStock !== undefined ? p.availableStock : (p.stock === '' ? '' : Math.max(0, Number(p.stock || 0) - Number(p.reservedStock || 0)));
@@ -382,6 +389,7 @@ async function apiPost(payload) {
       data = await send();
     }
     if (!data.ok) throw Error(data.error || 'ทำรายการไม่สำเร็จ');
+    if(READ_CACHE_MUTATIONS.has(payload.action))invalidateReadCaches();
     return data;
   } finally {
     if(sourceButton&&sourceButton.isConnected){sourceButton.disabled=false;if(sourceButton.dataset.originalText)sourceButton.innerHTML=sourceButton.dataset.originalText;delete sourceButton.dataset.originalText;}
@@ -396,18 +404,21 @@ function applyPublicData(data,offline=false){
   state.moneyT=data.moneyT?{...data.moneyT,kind:'TMONEY',unit:'T'}:null;
   state.promotions=data.promotions||[];state.settings=data.settings||{};state.updatedAt=data.updatedAt||data.stockUpdatedAt||'';state.offline=offline;productSearchCache=new WeakMap();
 }
-function restorePublicCache(offline=true){
-  try{const cached=JSON.parse(localStorage.getItem('dmo_public_cache')||'null'),maxHours=Number((cached&&cached.data&&cached.data.settings&&cached.data.settings.offlineCacheHours)||state.settings.offlineCacheHours||12);if(cached&&cached.data&&Date.now()-Number(cached.savedAt||0)<=maxHours*3600000){applyPublicData(cached.data,offline);state.publicLoadedAt=Number(cached.savedAt||0);return true;}}catch(error){}return false;
+function restorePublicCache(offline=true,newerOnly=false){
+  try{const cached=JSON.parse(localStorage.getItem('dmo_public_cache')||'null'),maxHours=Number((cached&&cached.data&&cached.data.settings&&cached.data.settings.offlineCacheHours)||state.settings.offlineCacheHours||12);if(cached&&cached.data&&String(cached.dataVersion||'')===dataInvalidationVersion&&(!newerOnly||Number(cached.savedAt||0)>Number(state.publicLoadedAt||0))&&Date.now()-Number(cached.savedAt||0)<=maxHours*3600000){applyPublicData(cached.data,offline);state.publicLoadedAt=Number(cached.savedAt||0);return true;}}catch(error){}return false;
 }
+function renderPublicRefresh(){if(state.page==='admin')return;const active=document.activeElement,id=active?.id,start=active?.selectionStart,end=active?.selectionEnd;renderPreservingScroll();if(id){const next=document.getElementById(id);if(next){next.focus({preventScroll:true});if(typeof start==='number'&&next.setSelectionRange)try{next.setSelectionRange(start,end);}catch(error){}}}}
 async function loadData(showLoading = true) {
   if(publicLoadPromise)return publicLoadPromise;
+  const versionAtStart=dataInvalidationVersion,startedAt=Date.now();
   const restored=showLoading&&restorePublicCache();
   if(showLoading&&!restored){state.loading=true;render();}else if(restored){state.loading=false;render();}
   publicLoadPromise=(async()=>{try{
-    const data=await apiGet(false);applyPublicData(data,false);state.publicLoadedAt=Date.now();markPublicRefreshGate(state.publicLoadedAt);
-    try{localStorage.setItem('dmo_public_cache',JSON.stringify({savedAt:Date.now(),data}));}catch(error){}
-    state.loading=false;render();
-  }catch(error){const cacheAvailable=restored||restorePublicCache();state.loading=false;render();toast(cacheAvailable?'ออฟไลน์: ใช้ข้อมูลล่าสุดที่บันทึกไว้':error.message);}finally{publicLoadPromise=null;}})();
+    const data=await apiGet(false);if(versionAtStart!==dataInvalidationVersion)return;
+    let newerCache=false;try{const cached=JSON.parse(localStorage.getItem('dmo_public_cache')||'null');newerCache=String(cached?.dataVersion||'')===versionAtStart&&Number(cached?.startedAt||0)>startedAt;if(newerCache)restorePublicCache(false,true);}catch(error){}
+    if(!newerCache){applyPublicData(data,false);state.publicLoadedAt=Date.now();markPublicRefreshGate(state.publicLoadedAt);try{localStorage.setItem('dmo_public_cache',JSON.stringify({savedAt:state.publicLoadedAt,startedAt,dataVersion:versionAtStart,data}));}catch(error){}}
+    state.loading=false;renderPublicRefresh();
+  }catch(error){if(versionAtStart!==dataInvalidationVersion)return;const cacheAvailable=restored||restorePublicCache();state.loading=false;renderPublicRefresh();if(state.page!=='admin')toast(cacheAvailable?'ออฟไลน์: ใช้ข้อมูลล่าสุดที่บันทึกไว้':error.message);}finally{publicLoadPromise=null;}})();
   return publicLoadPromise;
 }
 
@@ -419,7 +430,7 @@ function publicRefreshDue(now=Date.now()){
   return now-Math.max(Number(state.publicLoadedAt||0),sharedPublicRefreshAt())>=publicRefreshIntervalMs();
 }
 async function autoRefreshPublicUnlocked(){
-  if(state.page!=='admin'&&document.visibilityState!=='hidden'&&sharedPublicRefreshAt()>Number(state.publicLoadedAt||0)&&restorePublicCache(false))render();
+  if(state.page!=='admin'&&document.visibilityState!=='hidden'&&restorePublicCache(false,true))renderPublicRefresh();
   if(!publicRefreshDue())return false;
   markPublicRefreshGate();
   await loadData(false);
@@ -1482,34 +1493,48 @@ function applyAdminSettings(next,data,sequence){
 
 function resetAdminRequestState(){adminLoadPromises.clear();state.adminLoadingScopes.clear();state.adminLoading=false;adminFieldAppliedSequence.clear();}
 
+function invalidateReadCaches(version){
+  dataInvalidationVersion=version||`${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  state.adminLoadedAt=0;state.adminLoadedAtByScope={};state.publicLoadedAt=0;clearAdminShellCache();
+  if(!version)try{localStorage.setItem(DATA_INVALIDATION_KEY,dataInvalidationVersion);}catch(error){}
+  markPublicRefreshGate(0);
+}
+function adminHasOpenDraft(){
+  if(state.editRecord||state.promoEdit||state.categoryEdit||state.wikiGallery||state.facebookBump?.edit)return true;
+  if(state.adminView!=='settings')return false;
+  if(state.settingsSaving||state.servicePosterUpload||state.imagePreparing.servicePoster?.input===document.getElementById('servicePosterFile'))return true;
+  return [...document.querySelectorAll('input[id^="set"],select[id^="set"],textarea[id^="set"]')].some(control=>control.type==='checkbox'?control.checked!==control.defaultChecked:control.tagName==='SELECT'?control.selectedIndex!==Math.max(0,[...control.options].findIndex(option=>option.defaultSelected)):control.value!==control.defaultValue);
+}
+function renderAdminLoad(scope){if(state.page==='admin'&&state.adminView===scope&&!adminHasOpenDraft())render();}
+
 async function loadAdmin(force = true, scope = state.adminView || 'dashboard') {
   scope=String(scope||'dashboard');
   const active=adminLoadPromises.get(scope);
-  if(active){
+  if(active&&active.version===dataInvalidationVersion){
     if(!force||active.force)return active.promise;
     await active.promise;
     if(!state.adminToken)return;
     return loadAdmin(true,scope);
   }
   const loadedAt=Number(state.adminLoadedAtByScope[scope]||0);
-  if (!force && state.adminData && state.adminLoadedScopes.has(scope) && loadedAt && Date.now() - loadedAt < 30000) { render(); return; }
-  const tokenAtStart=state.adminToken,requestSequence=++adminRequestSequence;
+  if (!force && state.adminData && state.adminLoadedScopes.has(scope) && loadedAt && Date.now() - loadedAt < 30000) { renderAdminLoad(scope); return; }
+  const tokenAtStart=state.adminToken,versionAtStart=dataInvalidationVersion,requestSequence=++adminRequestSequence;
   state.adminLoadingScopes.add(scope);state.adminLoading = true;delete state.adminScopeErrors[scope];
   if (!state.adminData) state.adminData = adminBootstrapData();
-  render();
+  renderAdminLoad(scope);
   const request=(async()=>{try {
     const data = await apiPost({action:'getAdminData',token:state.adminToken,scope,fresh:!!force}),next={...(state.adminData||adminBootstrapData())};
-    if(!state.adminToken||state.adminToken!==tokenAtStart)return;
+    if(!state.adminToken||state.adminToken!==tokenAtStart||versionAtStart!==dataInvalidationVersion)return;
     ['seals','gameItems','services','moneyT','dashboardSummary','orders','deletedOrders','orderItems','logs','stockLogs','stockUpdatedAt','customers','customerInteractions','promotions','trash','automation','databaseVersion'].forEach(key=>applyAdminResponseField(next,data,key,requestSequence));
     applyAdminSettings(next,data,requestSequence);
     applyAdminSecurity(next,data,scope,requestSequence);
     if(hasOwn(data,'facebookBump'))applyAdminResponseField(next,data,'facebookBump',requestSequence);
     state.adminData=next;state.adminLoadedScopes.add(scope);
     state.adminLoadedAt = Date.now();state.adminLoadedAtByScope[scope]=state.adminLoadedAt;
-    if(next.dashboardSummary)saveAdminShellCache(next);
+    if(hasOwn(data,'dashboardSummary')&&next.dashboardSummary)saveAdminShellCache(next);
     if(data.security&&data.security.actor){state.adminUser={...(state.adminUser||{}),...data.security.actor};sessionStorage.setItem('dmo_admin_user',JSON.stringify(state.adminUser));}
   } catch (error) {
-    if(tokenAtStart!==state.adminToken)return;
+    if(tokenAtStart!==state.adminToken||versionAtStart!==dataInvalidationVersion)return;
     state.adminScopeErrors[scope]=error.message;
     if (/เข้าสู่ระบบ/.test(error.message)) {
       state.adminToken = '';
@@ -1523,9 +1548,9 @@ async function loadAdmin(force = true, scope = state.adminView || 'dashboard') {
     if(state.page==='admin'&&state.adminView===scope)toast(error.message);
   } finally {
     const current=adminLoadPromises.get(scope);if(current&&current.promise===request){adminLoadPromises.delete(scope);state.adminLoadingScopes.delete(scope);}
-    state.adminLoading=adminLoadPromises.size>0;render();
+    state.adminLoading=adminLoadPromises.size>0;renderAdminLoad(scope);
   }})();
-  adminLoadPromises.set(scope,{promise:request,force:!!force});
+  adminLoadPromises.set(scope,{promise:request,force:!!force,version:versionAtStart});
   return request;
 }
 
@@ -1547,18 +1572,15 @@ async function loadFacebookBumpAdminData() {
 }
 
 async function saveRecordAction() {
+  if(state.recordSaving)return;
+  if(state.imagePreparing.record?.input===document.getElementById('fImageFile'))return toast('กำลังเตรียมรูป กรุณารอให้เสร็จก่อนบันทึก');
+  const tokenAtStart=state.adminToken,old=state.editRecord,prepared=state.recordImageUpload,form=document.getElementById('modalBackdrop');
+  if(!old)return;
   try {
-    const old = state.editRecord;
     const seal = old.kind === 'SEAL';
     const service = old.kind === 'SERVICE';
     const tMoney = old.kind === 'TMONEY';
-    let imageUrl = document.getElementById('fImageUrl').value.trim();
-    if (state.recordImageUpload) {
-      toast('กำลังอัปโหลดรูป...');
-      imageUrl = await uploadPreparedImage(state.recordImageUpload);
-      document.getElementById('fImageUrl').value=imageUrl;
-      state.recordImageUpload=null;
-    }
+    const imageUrl = document.getElementById('fImageUrl').value.trim();
     const record = {
       ...old,
       name: document.getElementById('fName').value.trim(),
@@ -1590,14 +1612,17 @@ async function saveRecordAction() {
       else if(tMoney){record.name='เงิน T';record.itemCategory='MONEY_T';record.unit='T';}
       else record.itemCategory = document.getElementById('fItemCategory').value.trim();
     }
-    await apiPost({ action: 'upsert', token: state.adminToken, record });
-    state.editRecord = null;state.recordImageUpload=null;state.modalDirty.record=false;
+    state.recordSaving=true;setFormBusy(form,true);
+    if(prepared){toast('กำลังอัปโหลดรูป...');record.imageUrl=await uploadPreparedImage(prepared);if(state.editRecord===old){const input=form?.querySelector('#fImageUrl');if(input)input.value=record.imageUrl;if(state.recordImageUpload===prepared)state.recordImageUpload=null;}}
+    if(state.adminToken!==tokenAtStart)throw Error('กรุณาเข้าสู่ระบบอีกครั้งก่อนบันทึกสินค้า');
+    await apiPost({ action: 'upsert', token: tokenAtStart, record });
+    if(state.editRecord===old){state.editRecord = null;state.recordImageUpload=null;state.modalDirty.record=false;}
     toast('บันทึกสินค้าแล้ว');
     await loadAdmin();
     state.publicLoadedAt=0;
   } catch (error) {
     toast(error.message);
-  }
+  } finally {state.recordSaving=false;setFormBusy(form,false);}
 }
 
 const ADMIN_IMAGE_MIME_BY_EXTENSION={jpg:'image/jpeg',jpeg:'image/jpeg',png:'image/png',webp:'image/webp',gif:'image/gif'};
@@ -1614,10 +1639,10 @@ async function prepareAdminImage(file){
   const mime=imageFileMime(file);
   if(!ADMIN_IMAGE_ALLOWED_MIME.has(mime))throw Error('รองรับเฉพาะรูป PNG, JPG, WEBP และ GIF เท่านั้น');
   if(Number(file.size||0)>ADMIN_IMAGE_MAX_SOURCE_BYTES)throw Error('ไฟล์ต้นฉบับใหญ่เกิน 10 MB กรุณาลดขนาดก่อนอัปโหลด');
-  const originalUrl=await fileDataUrl(file);
+  const originalUrl=await fileDataUrl(file),image=await imageFromUrl(originalUrl);
   if(Number(file.size||0)<=ADMIN_IMAGE_MAX_UPLOAD_BYTES)return{data:originalUrl.split(',')[1]||'',mimeType:mime,fileName:imageUploadName(file.name,mime),previewUrl:originalUrl,size:Number(file.size||0),compressed:false};
   if(mime==='image/gif')throw Error('GIF ต้องมีขนาดไม่เกินประมาณ 1.9 MB เพราะระบบไม่ย่อภาพเคลื่อนไหว');
-  const image=await imageFromUrl(originalUrl),canvas=document.createElement('canvas'),maxDimension=1600,initialScale=Math.min(1,maxDimension/Math.max(image.naturalWidth||image.width,image.naturalHeight||image.height));
+  const canvas=document.createElement('canvas'),maxDimension=1600,initialScale=Math.min(1,maxDimension/Math.max(image.naturalWidth||image.width,image.naturalHeight||image.height));
   let width=Math.max(1,Math.round((image.naturalWidth||image.width)*initialScale)),height=Math.max(1,Math.round((image.naturalHeight||image.height)*initialScale)),blob=null,quality=.86;
   for(let attempt=0;attempt<8;attempt++){
     canvas.width=width;canvas.height=height;const context=canvas.getContext('2d');context.clearRect(0,0,width,height);context.drawImage(image,0,0,width,height);
@@ -1630,6 +1655,16 @@ async function prepareAdminImage(file){
   return{data:previewUrl.split(',')[1]||'',mimeType:'image/webp',fileName:imageUploadName(file.name,'image/webp'),previewUrl,size:blob.size,compressed:true};
 }
 async function uploadPreparedImage(prepared){if(!prepared?.data)throw Error('ข้อมูลรูปไม่พร้อมอัปโหลด');const result=await apiPost({action:'uploadImage',token:state.adminToken,data:prepared.data,mimeType:prepared.mimeType,fileName:prepared.fileName});return result.imageUrl;}
+function setFormBusy(form,busy){if(!form)return;form.querySelectorAll('input,select,textarea,button').forEach(control=>{if(busy){control.dataset.formWasDisabled=control.disabled?'1':'0';control.disabled=true;}else if(hasOwn(control.dataset,'formWasDisabled')){control.disabled=control.dataset.formWasDisabled==='1';delete control.dataset.formWasDisabled;}});}
+async function selectAdminImage(kind,input){
+  const file=input.files?.[0];if(!file||state.recordSaving||state.settingsSaving)return;
+  const prefix=kind==='record'?'recordImage':'servicePoster',field=kind==='record'?'recordImageUpload':'servicePosterUpload',operation={input,file,record:state.editRecord},status=document.getElementById(prefix+'Status');
+  state.imagePreparing[kind]=operation;state[field]=null;input.disabled=true;if(status)status.textContent='กำลังตรวจและเตรียมรูป...';
+  const isCurrent=()=>state.imagePreparing[kind]===operation&&document.getElementById(input.id)===input&&(kind!=='record'||state.editRecord===operation.record);
+  try{const prepared=await prepareAdminImage(file);if(!isCurrent())return;state[field]=prepared;if(kind==='record')state.modalDirty.record=true;updateAdminImagePreview(prefix,prepared,'');}
+  catch(error){if(!isCurrent())return;state[field]=null;input.value='';if(status)status.textContent=error.message;toast(error.message);}
+  finally{if(state.imagePreparing[kind]===operation)state.imagePreparing[kind]=null;input.disabled=false;}
+}
 function updateAdminImagePreview(prefix,prepared,urlValue){const wrap=document.getElementById(prefix+'PreviewWrap'),status=document.getElementById(prefix+'Status');if(!wrap)return;const preview=prepared?.previewUrl||safeExternalUrl(urlValue||'');wrap.classList.toggle('has-image',!!preview);wrap.innerHTML=preview?`<img id="${prefix}Preview" src="${html(preview)}" alt="ตัวอย่างรูป">`:`<span id="${prefix}PreviewEmpty">ยังไม่มีรูป</span>`;if(status&&prepared)status.textContent=`พร้อมอัปโหลด ${(prepared.size/1024).toFixed(0)} KB${prepared.compressed?' • ย่อเป็น WEBP แล้ว':''}`;}
 
 function fileAsBase64(file,errorMessage='อ่านไฟล์ไม่สำเร็จ'){
@@ -1704,13 +1739,10 @@ async function archiveOrderFromAdmin(id){
 async function restoreOrderFromAdmin(id){if(state.adminActionPending)return;if(!confirm(`ยืนยันกู้คืนออเดอร์ ${id}?\n\nระบบจะไม่จองหรือตัดสต๊อกอัตโนมัติ`))return;try{state.adminActionPending=id;render();await apiPost({action:'restoreArchivedOrder',token:state.adminToken,orderId:id});toast('กู้คืนออเดอร์แล้ว โดยคงสถานะสต๊อกเดิม');await loadAdmin();}catch(error){toast(error.message);}finally{state.adminActionPending='';render();}}
 
 async function saveSettingsAction() {
+  if(state.settingsSaving)return;
+  if(state.imagePreparing.servicePoster?.input===document.getElementById('servicePosterFile'))return toast('กำลังเตรียมรูป กรุณารอให้เสร็จก่อนบันทึก');
+  const tokenAtStart=state.adminToken,prepared=state.servicePosterUpload,form=app;
   try {
-    if(state.servicePosterUpload){
-      toast('กำลังอัปโหลดโปสเตอร์บริการ...');
-      const posterUrl=await uploadPreparedImage(state.servicePosterUpload),posterInput=document.getElementById('setServicePoster');
-      if(posterInput)posterInput.value=posterUrl;
-      state.servicePosterUpload=null;
-    }
     const settings = {
       shopName: document.getElementById('setShopName').value.trim(),
       ownerName: document.getElementById('setOwnerName').value.trim(),
@@ -1751,12 +1783,17 @@ async function saveSettingsAction() {
       autoLockMinutes: Number(document.getElementById('setAutoLock').value) || 30,
       apiKey: document.getElementById('setApiKey').value,
     };
-    await apiPost({ action: 'saveSettings', token: state.adminToken, settings });
+    state.settingsSaving=true;setFormBusy(form,true);
+    if(prepared){toast('กำลังอัปโหลดโปสเตอร์บริการ...');settings.servicePosterUrl=await uploadPreparedImage(prepared);const input=document.getElementById('setServicePoster');if(input)input.value=settings.servicePosterUrl;if(state.servicePosterUpload===prepared)state.servicePosterUpload=null;}
+    if(state.adminToken!==tokenAtStart)throw Error('กรุณาเข้าสู่ระบบอีกครั้งก่อนบันทึกการตั้งค่า');
+    await apiPost({ action: 'saveSettings', token: tokenAtStart, settings });
     state.theme=settings.themeDefault;localStorage.setItem('dmo_theme',state.theme);
     state.servicePosterUpload=null;toast('บันทึกการตั้งค่าแล้ว');
-    await loadAdmin(true);
+    if(state.adminData)state.adminData.settings={...state.adminData.settings,...settings};
+    if(state.page==='admin'&&state.adminView==='settings')render();
+    await loadAdmin(true,'settings');
     state.publicLoadedAt=0;
-  } catch (error) { toast(error.message); }
+  } catch (error) { toast(error.message); }finally{state.settingsSaving=false;setFormBusy(form,false);}
 }
 
 async function saveProductCategoryAction(){
@@ -1765,7 +1802,8 @@ async function saveProductCategoryAction(){
     if(!kind||!value||!label)throw Error('กรุณากรอกประเภท รหัสหมวด และชื่อที่แสดง');
     const categories=productSubcategorySettings(),duplicate=categories.find(row=>row.id!==current.id&&row.kind===kind&&row.value.toUpperCase()===value.toUpperCase());if(duplicate)throw Error('มีรหัสหมวดนี้อยู่แล้ว');
     const row={id:current.id||`CATEGORY-${kind}-${crypto.randomUUID?crypto.randomUUID():Date.now()}`,kind,value,label,sortOrder:Math.max(0,Number(document.getElementById('categorySort')?.value)||10),enabled:!!document.getElementById('categoryEnabled')?.checked},next=current.id?categories.map(item=>item.id===current.id?row:item):categories.concat(row);
-    await apiPost({action:'saveSettings',token:state.adminToken,settings:{productSubcategoriesJson:JSON.stringify(next)}});
+    const expectedCategories=state.adminData?.settings?.productSubcategoriesJson??DEFAULT_PRODUCT_SUBCATEGORIES,expectedSubcategoriesJson=Array.isArray(expectedCategories)?JSON.stringify(expectedCategories):String(expectedCategories);
+    await apiPost({action:'saveSettings',token:state.adminToken,settings:{productSubcategoriesJson:JSON.stringify(next)},expectedSubcategoriesJson});
     state.categoryEdit=null;state.modalDirty.category=false;toast('บันทึกหมวดย่อยแล้ว');await loadAdmin(true,'categories');state.publicLoadedAt=0;
   }catch(error){toast(error.message);}
 }
@@ -1924,7 +1962,7 @@ function bind() {
   document.querySelectorAll('[data-admin-view]').forEach((button) => button.onclick = async () => {
     state.adminView = button.dataset.adminView;
     render();
-    if(!state.adminLoadedScopes.has(state.adminView))await loadAdmin(false,state.adminView);
+    if(state.adminView!=='facebookBump')await loadAdmin(false,state.adminView);
     if (state.adminView === 'facebookBump' && !state.adminData?.facebookBump) await loadFacebookBumpAdminData();
   });
   const retryAdminScopeBtn=document.getElementById('retryAdminScopeBtn');if(retryAdminScopeBtn)retryAdminScopeBtn.onclick=()=>loadAdmin(false,state.adminView);
@@ -1968,9 +2006,9 @@ function bind() {
   const closeModal = document.getElementById('closeModalBtn'); if (closeModal) closeModal.onclick = () => closeStateModal('record');
   const closeModalX = document.getElementById('closeModalXBtn'); if (closeModalX) closeModalX.onclick = () => closeStateModal('record');
   bindModalDirty('modalBackdrop','record');
-  const recordImageInput=document.getElementById('fImageFile');if(recordImageInput)recordImageInput.onchange=async()=>{const file=recordImageInput.files&&recordImageInput.files[0],status=document.getElementById('recordImageStatus');if(!file)return;try{recordImageInput.disabled=true;if(status)status.textContent='กำลังตรวจและเตรียมรูป...';state.recordImageUpload=await prepareAdminImage(file);state.modalDirty.record=true;updateAdminImagePreview('recordImage',state.recordImageUpload,'');}catch(error){state.recordImageUpload=null;recordImageInput.value='';if(status)status.textContent=error.message;toast(error.message);}finally{recordImageInput.disabled=false;}};
-  const recordImageUrl=document.getElementById('fImageUrl');if(recordImageUrl)recordImageUrl.addEventListener('input',()=>{state.recordImageUpload=null;updateAdminImagePreview('recordImage',null,recordImageUrl.value);});
-  const removeRecordImageBtn=document.getElementById('removeRecordImageBtn');if(removeRecordImageBtn)removeRecordImageBtn.onclick=()=>{state.recordImageUpload=null;if(recordImageUrl)recordImageUrl.value='';if(recordImageInput)recordImageInput.value='';state.modalDirty.record=true;updateAdminImagePreview('recordImage',null,'');};
+  const recordImageInput=document.getElementById('fImageFile');if(recordImageInput)recordImageInput.onchange=()=>selectAdminImage('record',recordImageInput);
+  const recordImageUrl=document.getElementById('fImageUrl');if(recordImageUrl)recordImageUrl.addEventListener('input',()=>{state.imagePreparing.record=null;state.recordImageUpload=null;updateAdminImagePreview('recordImage',null,recordImageUrl.value);});
+  const removeRecordImageBtn=document.getElementById('removeRecordImageBtn');if(removeRecordImageBtn)removeRecordImageBtn.onclick=()=>{state.imagePreparing.record=null;state.recordImageUpload=null;if(recordImageUrl)recordImageUrl.value='';if(recordImageInput)recordImageInput.value='';state.modalDirty.record=true;updateAdminImagePreview('recordImage',null,'');};
   const saveRecord = document.getElementById('saveRecordBtn'); if (saveRecord) saveRecord.onclick = saveRecordAction;
   const wikiButton = document.getElementById('wikiGalleryBtn'); if (wikiButton) wikiButton.onclick = () => state.modalDirty.record?toast('กรุณาบันทึกหรือยกเลิกการแก้ไขสินค้าก่อนเปิดคลังรูป'):openWikiGallery();
   const wikiCenterRecordBtn = document.getElementById('wikiCenterRecordBtn'); if (wikiCenterRecordBtn) wikiCenterRecordBtn.onclick = () => state.modalDirty.record?toast('กรุณาบันทึกหรือยกเลิกการแก้ไขสินค้าก่อนค้น DMO Wiki'):openWikiCenterForRecord(state.editRecord);
@@ -1995,9 +2033,9 @@ function bind() {
   ['setThemeDefault','setThemePrimary','setThemeAccent','setThemeBackground','setThemeButton','setThemeImportant'].forEach(id=>{const control=document.getElementById(id);if(control){control.oninput=previewThemeFromForm;control.onchange=previewThemeFromForm;}});
   const restoreThemeDefaultsBtn=document.getElementById('restoreThemeDefaultsBtn');if(restoreThemeDefaultsBtn)restoreThemeDefaultsBtn.onclick=()=>{const values={setThemeDefault:'DARK',setThemePrimary:DEFAULT_THEME_COLORS.primary,setThemeAccent:DEFAULT_THEME_COLORS.accent,setThemeBackground:DEFAULT_THEME_COLORS.background,setThemeButton:DEFAULT_THEME_COLORS.button,setThemeImportant:DEFAULT_THEME_COLORS.important};Object.entries(values).forEach(([id,value])=>{const control=document.getElementById(id);if(control)control.value=value;});previewThemeFromForm();toast('คืนค่าสีเริ่มต้นในแบบฟอร์มแล้ว กดบันทึกเพื่อใช้งานจริง');};
   const saveSettings = document.getElementById('saveSettingsBtn'); if (saveSettings) saveSettings.onclick = saveSettingsAction;
-  const servicePosterFile=document.getElementById('servicePosterFile');if(servicePosterFile)servicePosterFile.onchange=async()=>{const file=servicePosterFile.files&&servicePosterFile.files[0],status=document.getElementById('servicePosterStatus');if(!file)return;try{servicePosterFile.disabled=true;if(status)status.textContent='กำลังตรวจและเตรียมรูป...';state.servicePosterUpload=await prepareAdminImage(file);updateAdminImagePreview('servicePoster',state.servicePosterUpload,'');}catch(error){state.servicePosterUpload=null;servicePosterFile.value='';if(status)status.textContent=error.message;toast(error.message);}finally{servicePosterFile.disabled=false;}};
-  const servicePosterUrl=document.getElementById('setServicePoster');if(servicePosterUrl)servicePosterUrl.addEventListener('input',()=>{state.servicePosterUpload=null;updateAdminImagePreview('servicePoster',null,servicePosterUrl.value);});
-  const removeServicePosterBtn=document.getElementById('removeServicePosterBtn');if(removeServicePosterBtn)removeServicePosterBtn.onclick=()=>{state.servicePosterUpload=null;if(servicePosterUrl)servicePosterUrl.value='';if(servicePosterFile)servicePosterFile.value='';updateAdminImagePreview('servicePoster',null,'');};
+  const servicePosterFile=document.getElementById('servicePosterFile');if(servicePosterFile)servicePosterFile.onchange=()=>selectAdminImage('servicePoster',servicePosterFile);
+  const servicePosterUrl=document.getElementById('setServicePoster');if(servicePosterUrl)servicePosterUrl.addEventListener('input',()=>{state.imagePreparing.servicePoster=null;state.servicePosterUpload=null;updateAdminImagePreview('servicePoster',null,servicePosterUrl.value);});
+  const removeServicePosterBtn=document.getElementById('removeServicePosterBtn');if(removeServicePosterBtn)removeServicePosterBtn.onclick=()=>{state.imagePreparing.servicePoster=null;state.servicePosterUpload=null;if(servicePosterUrl)servicePosterUrl.value='';if(servicePosterFile)servicePosterFile.value='';updateAdminImagePreview('servicePoster',null,'');};
   const copyFacebookPostBtn=document.getElementById('copyFacebookPostBtn');if(copyFacebookPostBtn)copyFacebookPostBtn.onclick=()=>copyText(document.getElementById('facebookPostPreview')?.value||facebookPostText(),'คัดลอกข้อความโพสต์ Facebook แล้ว');
   document.querySelectorAll('[data-toggle-password]').forEach((button)=>button.onclick=()=>{const input=document.getElementById(button.dataset.togglePassword);if(!input)return;const show=input.type==='password';input.type=show?'text':'password';button.textContent=show?'ซ่อน':'แสดง';});
   const changeOwnerPasswordBtn=document.getElementById('changeOwnerPasswordBtn');if(changeOwnerPasswordBtn)changeOwnerPasswordBtn.onclick=async()=>{if(state.adminActionPending)return;const currentPassword=document.getElementById('ownerCurrentPassword').value,newPassword=document.getElementById('ownerNewPassword').value,confirmPassword=document.getElementById('ownerConfirmPassword').value;if(newPassword.length<10)return toast('รหัสผ่านใหม่ต้องมีอย่างน้อย 10 ตัวอักษร');if(newPassword!==confirmPassword)return toast('รหัสผ่านใหม่และยืนยันรหัสผ่านไม่ตรงกัน');try{state.adminActionPending='OWNER_PASSWORD';changeOwnerPasswordBtn.disabled=true;changeOwnerPasswordBtn.textContent='กำลังเปลี่ยนรหัสผ่าน...';const data=await apiPost({action:'changeOwnerPassword',token:state.adminToken,currentPassword,newPassword,confirmPassword});state.adminToken='';state.adminData=null;state.adminUser=null;sessionStorage.removeItem('dmo_admin_token');sessionStorage.removeItem('dmo_admin_user');sessionStorage.removeItem('dmo_admin_activity');clearAdminShellCache();render();toast(data.message||'เปลี่ยนรหัสผ่านสำเร็จ กรุณาเข้าสู่ระบบอีกครั้ง');}catch(e){toast(e.message);}finally{state.adminActionPending='';}};
@@ -2082,5 +2120,9 @@ applyTheme();
 
 window.addEventListener('hashchange', () => { state.page = location.hash === '#admin' ? 'admin' : 'shop'; if(state.page==='admin'){if(state.adminToken)loadAdmin(false);else render();}else if(!state.publicLoadedAt)loadData(true);else{render();autoRefreshPublic();} });
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'){if(state.page!=='admin'&&!state.publicLoadedAt)loadData(true);else autoRefreshPublic();}});
+window.addEventListener('storage',event=>{
+  if(event.key===DATA_INVALIDATION_KEY&&event.newValue&&event.newValue!==dataInvalidationVersion)invalidateReadCaches(event.newValue);
+  if(event.key==='dmo_public_cache'&&state.page!=='admin'&&document.visibilityState!=='hidden'&&restorePublicCache(false,true))renderPublicRefresh();
+});
 if(state.page==='admin'){state.loading=false;render();if(state.adminToken)loadAdmin(false);}else if(document.visibilityState==='hidden'){state.loading=false;restorePublicCache();render();}else loadData(true);
 setInterval(autoRefreshPublic,15000);

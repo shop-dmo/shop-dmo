@@ -50,3 +50,11 @@ assert(app.includes('prepareAdminImage')&&app.includes('servicePosterFile')&&app
 assert(app.includes("mime==='image/gif'")&&app.includes('ADMIN_IMAGE_MAX_UPLOAD_BYTES'),'client compression boundary is missing');
 
 console.log('PASS image upload: PNG/JPEG/WEBP/GIF signatures, MIME match, exact byte cap, preview/compression and service poster flow');
+
+{
+  const isolated={DriveApp:{Access:{ANYONE_WITH_LINK:'LINK'},Permission:{VIEW:'VIEW'}}};vm.createContext(isolated);vm.runInContext(source,isolated);
+  let trashed=false;isolated.imageFolder=()=>({createFile:()=>({setSharing(){throw Error('PRIVATE PROVIDER ERROR');},setTrashed(value){trashed=value;}})});
+  assert.throws(()=>isolated.saveBlobToDrive({setName(){}},'test.png'),error=>error.message.includes('รูปสินค้าเดิมยังไม่ถูกเปลี่ยน')&&!error.message.includes('PRIVATE PROVIDER'));
+  assert.equal(trashed,true,'failed new upload should be moved to Trash without touching existing files');
+}
+console.log('PASS sharing failure rolls back only the newly created image and provides a clear error');
