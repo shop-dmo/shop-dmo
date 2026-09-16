@@ -2,6 +2,16 @@
 
 Owner display: disabled
 
+## V20.2.5 — Login transport feedback and validation
+
+- Handle network/abort errors during response body reads as well as connection setup; keep the existing bounded request deadlines.
+- Explicitly follow Apps Script redirects without ambient Google cookies or HTTP response caching. Credentials remain in POST bodies, never URLs.
+- Reject incomplete/non-API JSON and incomplete login results before creating a browser session.
+- Login errors remain visible inline, the ID survives a failed attempt in memory only, and passwords are cleared rather than stored. Enter and click share the duplicate-submit guard.
+- No automatic replay of login or mutations; only the existing bounded read-only retry is retained.
+- Added eight executable login/transport regressions. Production login and non-Facebook admin reads were verified before release; intermittent Google/network transport failures are not claimed to be eliminated.
+- No Apps Script, credential, pricing, Facebook or PC2 changes in this frontend-only release.
+
 ## V20.2.4 — Cross-tab refresh and upload safety
 
 - Retired cache generations prevent late Dashboard, Settings, or public catalog reads from repopulating a cache after Archive/Restore and other mutations.

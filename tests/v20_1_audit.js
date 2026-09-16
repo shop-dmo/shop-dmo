@@ -228,7 +228,7 @@ check('32. Admin scoped loading and large-list performance', () => {
   assert(!ordersSource.includes('itemRows.filter('), 'หน้าออเดอร์ยัง scan Order Items ซ้ำต่อออเดอร์');
   ['adminOrderVisible','adminCatalogVisible','inventoryVisible','customerVisible'].forEach(key=>assert(app.includes(key),`ไม่มี batch limit: ${key}`));
   ['loadMoreOrdersBtn','loadMoreAdminCatalogBtn','loadMoreInventoryBtn','loadMoreCustomersBtn'].forEach(id=>assert(app.includes(id),`ไม่มีปุ่มแสดงเพิ่ม: ${id}`));
-  assert(read('index.html').includes('20260915-v20.2-stability-7')&&read('sw.js').includes('gun-shop-dmo-v20-2-stability-7'),'PWA cache version ยังไม่ตรงกับ admin performance build');
+  assert(read('index.html').includes('20260916-v20.2-login-8')&&read('sw.js').includes('gun-shop-dmo-v20-2-login-8'),'PWA cache version ยังไม่ตรงกับ admin performance build');
 });
 
 [

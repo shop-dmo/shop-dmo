@@ -72,6 +72,8 @@ const state = {
   adminLoadingScopes: new Set(),
   adminScopeErrors: {},
   loginSubmitting: false,
+  loginId: '',
+  loginError: '',
   adminUser: JSON.parse(sessionStorage.getItem('dmo_admin_user') || 'null'),
   lastAdminActivity: Number(sessionStorage.getItem('dmo_admin_activity') || Date.now()),
   adminView: 'dashboard',
@@ -334,13 +336,15 @@ async function fetchApiJson(url, options = {}, timeoutMs = 45000) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    let response;
-    try { response = await fetch(url, { ...options, signal: controller.signal }); }
+    let response, raw;
+    try {
+      response = await fetch(url, { credentials: 'omit', redirect: 'follow', cache: 'no-store', ...options, signal: controller.signal });
+      raw = await response.text();
+    }
     catch (error) {
       if (error?.name === 'AbortError') throw apiResponseError(`ระบบหลังบ้านตอบช้าเกิน ${Math.ceil(timeoutMs/1000)} วินาที กรุณาลองใหม่`, false);
       throw apiResponseError('เชื่อมต่อระบบหลังบ้านไม่สำเร็จ กรุณาตรวจอินเทอร์เน็ตแล้วลองใหม่', true);
     }
-    const raw = await response.text();
     let data;
     try { data = JSON.parse(raw); }
     catch (error) {
@@ -348,6 +352,7 @@ async function fetchApiJson(url, options = {}, timeoutMs = 45000) {
       throw apiResponseError(`ระบบหลังบ้านตอบกลับไม่สมบูรณ์ (HTTP ${response.status || '-'}) กรุณาลองใหม่`, temporary);
     }
     if (!response.ok) throw apiResponseError(data?.error || `ระบบหลังบ้านไม่พร้อมใช้งาน (HTTP ${response.status})`, response.status === 404 || response.status >= 500);
+    if (!data || typeof data !== 'object' || Array.isArray(data) || typeof data.ok !== 'boolean') throw apiResponseError('ระบบหลังบ้านตอบกลับไม่สมบูรณ์ กรุณาลองใหม่', true);
     return data;
   } finally { clearTimeout(timeout); }
 }
@@ -751,7 +756,7 @@ function orderSuccessPanel(){
 
 // ---------------- Admin ----------------
 function adminPage() {
-  if (!state.adminToken) return `<section class="panel login-box"><h2 class="panel-title">เข้าสู่ระบบร้าน</h2><p class="product-meta">ข้อมูลหลังบ้านทั้งหมดอยู่ภายในหน้านี้</p><div class="stack"><input id="adminId" placeholder="ไอดี" ${state.loginSubmitting?'disabled':''}><input id="adminPassword" type="password" placeholder="รหัสผ่าน" ${state.loginSubmitting?'disabled':''}><button class="btn primary" id="loginBtn" ${state.loginSubmitting?'disabled':''}>${state.loginSubmitting?'<span class="loading"></span> กำลังตรวจสอบบัญชี...':'เข้าสู่ระบบ'}</button>${state.loginSubmitting?'<div class="product-meta">รับคำขอแล้ว กรุณารอสักครู่ ไม่ต้องกดซ้ำ</div>':''}<button class="btn" id="backShopBtn" ${state.loginSubmitting?'disabled':''}>← กลับหน้าร้าน</button></div></section>`;
+  if (!state.adminToken) return `<section class="panel login-box"><h2 class="panel-title">เข้าสู่ระบบร้าน</h2><p class="product-meta">ข้อมูลหลังบ้านทั้งหมดอยู่ภายในหน้านี้</p><div class="stack"><input id="adminId" placeholder="ไอดี" aria-label="ไอดี" autocomplete="username" value="${html(state.loginId)}" ${state.loginSubmitting?'disabled':''}><input id="adminPassword" type="password" placeholder="รหัสผ่าน" aria-label="รหัสผ่าน" autocomplete="current-password" ${state.loginSubmitting?'disabled':''}><button class="btn primary" id="loginBtn" ${state.loginSubmitting?'disabled':''}>${state.loginSubmitting?'<span class="loading"></span> กำลังตรวจสอบบัญชี...':'เข้าสู่ระบบ'}</button>${state.loginSubmitting?'<div class="product-meta" role="status">รับคำขอแล้ว กรุณารอสักครู่ ไม่ต้องกดซ้ำ</div>':''}${state.loginError?`<div class="product-meta" role="alert">${html(state.loginError)}</div>`:''}<button class="btn" id="backShopBtn" ${state.loginSubmitting?'disabled':''}>← กลับหน้าร้าน</button></div></section>`;
   if (!state.adminData) return `<section class="panel empty"><span class="loading"></span> เข้าสู่ระบบสำเร็จ กำลังโหลดข้อมูลหลังร้าน...</section>`;
   const views = [['dashboard', '📊 ภาพรวม'], ['catalog', '📦 สินค้า'], ['categories', '🗂️ หมวดย่อย'], ['images', '🖼️ จัดการรูป'], ['inventory', '🏬 สต๊อก'], ['analytics', '📈 วิเคราะห์'], ['reports', '📤 รายงาน'], ['orders', '🧾 ออเดอร์'], ['marketing', '📣 สร้างโพสต์'], ['facebookBump', '📣 ดันโพสต์ Facebook'], ['customers', '👥 CRM ลูกค้า'], ['promotions', '🎁 โปรโมชั่น'], ['wiki', '📚 DMO Wiki'], ['trash', '🗑️ ถังขยะ'], ['calculator', '🧮 คำนวณ'], ['settings', '⚙️ ตั้งค่า'], ['security', '🛡️ ความปลอดภัย'], ['integrity', '🧪 ตรวจข้อมูล'], ['automation', '🤖 Automation'], ['logs', '🕘 ประวัติ']];
   return `<div class="admin-toolbar"><div class="chip-row">${views.map(([value, label]) => `<button class="filter-chip ${state.adminView === value ? 'active' : ''}" data-admin-view="${value}">${label}</button>`).join('')}</div><div><span class="badge green">${html((state.adminUser&&state.adminUser.role)||'ADMIN')}</span> <button class="btn" id="backShopBtn">หน้าร้าน</button> <button class="btn danger" id="logoutBtn">ออกจากระบบ</button></div></div>${adminContent()}${state.editRecord !== null ? dynamicEditModalMarkup() : ''}${state.wikiGallery ? standardWikiModalMarkup() : ''}`;
@@ -1930,6 +1935,21 @@ async function saveFacebookBumpSettingsFromForm() {
   await facebookBumpRequest('SAVE_SETTINGS',{action:'saveFacebookBumpSettings',settings},'บันทึกการตั้งค่าแล้ว');
 }
 
+async function submitAdminLogin() {
+  if(state.loginSubmitting)return;
+  const adminId=document.getElementById('adminId').value.trim(),password=document.getElementById('adminPassword').value;
+  state.loginId=adminId;state.loginError='';
+  if(!adminId||!password){state.loginError='กรุณากรอกไอดีและรหัสผ่าน';render();return;}
+  state.loginSubmitting=true;render();
+  try {
+    const data=await apiPost({action:'login',adminId,password});
+    if(typeof data.token!=='string'||!data.token.trim()||!data.user||typeof data.user!=='object')throw Error('คำตอบเข้าสู่ระบบไม่ครบ กรุณาลองใหม่');
+    resetAdminRequestState();state.adminToken=data.token;state.adminUser=data.user;state.adminData=adminBootstrapData();state.adminLoadedAt=0;state.adminLoadedAtByScope={};state.adminLoadedScopes=new Set();state.adminScopeErrors={};state.lastAdminActivity=Date.now();
+    sessionStorage.setItem('dmo_admin_token',data.token);sessionStorage.setItem('dmo_admin_user',JSON.stringify(state.adminUser));sessionStorage.setItem('dmo_admin_activity',String(state.lastAdminActivity));
+    state.loginSubmitting=false;render();await loadAdmin(false);
+  } catch(error) {state.loginError=error.message;state.loginSubmitting=false;render();toast(error.message);}
+}
+
 function bind() {
   document.querySelectorAll('[data-type]').forEach((button) => button.onclick = () => { state.catalogType = button.dataset.type; state.wishlistOnly=false; state.search = ''; state.selectedSearchKey = '';state.section='ALL';state.catalogVisible=60; render(); });
   const favoritesBtn=document.getElementById('favoritesBtn');if(favoritesBtn)favoritesBtn.onclick=()=>{state.wishlistOnly=!state.wishlistOnly;state.catalogVisible=60;render();};
@@ -1957,7 +1977,7 @@ function bind() {
   const saveOrder = document.getElementById('saveOrderBtn'); if (saveOrder) saveOrder.onclick = async () => { if(state.orderSubmitting)return;try { const remaining=Math.ceil((state.orderCooldownUntil-Date.now())/1000);if(remaining>0)throw Error(`กรุณารอ ${remaining} วินาทีก่อนส่งออเดอร์ใหม่`);const customer = customerValues(); if(!customer.tamer.trim()) throw Error('กรุณากรอกชื่อเทมเมอร์'); if(!customer.contact.trim()) throw Error('กรุณากรอกชื่อ Facebook'); if(!state.cart.length) throw Error('ยังไม่มีสินค้าในรายการ');const fingerprint=JSON.stringify({customer,items:state.cart.map(x=>({id:x.id,kind:x.kind,quantity:x.quantity}))});if(state.pendingOrderFingerprint!==fingerprint){state.pendingOrderFingerprint=fingerprint;state.pendingOrderRequestId=(crypto.randomUUID?crypto.randomUUID():`${Date.now()}-${Math.random().toString(16).slice(2)}`);}const website=document.getElementById('orderWebsite')?.value||'';state.orderSubmitting=true;render();const data = await apiPost({ action: 'createOrder', requestId:state.pendingOrderRequestId, customer, items: state.cart, website, startedAt:state.orderFormStartedAt }); if(!data.orderId) throw Error('ระบบยังไม่เปิดรับออเดอร์ กรุณาติดต่อร้าน'); saveRecentOrderSnapshot(data.orderId); state.orderSuccess={orderId:data.orderId,total:Number(data.total||0),discount:Number(data.discount||0)};const cooldown=Math.max(5,Math.min(120,Number(state.settings.orderSubmitCooldownSeconds)||30));state.orderCooldownUntil=Date.now()+cooldown*1000;localStorage.setItem('dmo_order_cooldown_until',String(state.orderCooldownUntil));state.orderFormStartedAt=Date.now();state.cart=[];state.pendingOrderRequestId='';state.pendingOrderFingerprint='';state.orderSubmitting=false;render();setTimeout(()=>{if(state.page==='shop')render();},cooldown*1000+100);window.scrollTo({top:0,behavior:'smooth'}); } catch (error) { state.orderSubmitting=false;render();toast(error.message); } };
   const adminEntry = document.getElementById('adminEntry'); if (adminEntry) adminEntry.onclick = () => { state.page = 'admin'; location.hash = 'admin'; if (state.adminToken) loadAdmin(false); else render(); };
   const backShop = document.getElementById('backShopBtn'); if (backShop) backShop.onclick = () => { state.page = 'shop'; location.hash = ''; if(!state.publicLoadedAt)loadData(true);else{render();autoRefreshPublic();} };
-  const login = document.getElementById('loginBtn'); if (login) login.onclick = async () => { if(state.loginSubmitting)return;const adminId=document.getElementById('adminId').value,password=document.getElementById('adminPassword').value;state.loginSubmitting=true;render();try { const data = await apiPost({ action:'login',adminId,password }); state.loginSubmitting=false;resetAdminRequestState();state.adminToken=data.token;state.adminUser=data.user||null;state.adminData=adminBootstrapData();state.adminLoadedAt=0;state.adminLoadedAtByScope={};state.adminLoadedScopes=new Set();state.adminScopeErrors={};state.lastAdminActivity=Date.now();sessionStorage.setItem('dmo_admin_token',data.token);sessionStorage.setItem('dmo_admin_user',JSON.stringify(state.adminUser));sessionStorage.setItem('dmo_admin_activity',String(state.lastAdminActivity));render();await loadAdmin(false); } catch (error) { state.loginSubmitting=false;render();toast(error.message); } };
+  const login = document.getElementById('loginBtn'); if (login) {login.onclick=submitAdminLogin;['adminId','adminPassword'].forEach(id=>{const input=document.getElementById(id);if(input)input.onkeydown=event=>{if(event.key==='Enter'){event.preventDefault();submitAdminLogin();}};});}
   const logout = document.getElementById('logoutBtn'); if (logout) logout.onclick = async () => { try{await apiPost({action:'logout',token:state.adminToken});}catch(e){} state.adminToken='';state.adminData=null;state.adminLoadedScopes=new Set();state.adminLoadedAtByScope={};state.adminScopeErrors={};resetAdminRequestState();state.adminUser=null;sessionStorage.removeItem('dmo_admin_token');sessionStorage.removeItem('dmo_admin_user');sessionStorage.removeItem('dmo_admin_activity');clearAdminShellCache();render(); };
   document.querySelectorAll('[data-admin-view]').forEach((button) => button.onclick = async () => {
     state.adminView = button.dataset.adminView;

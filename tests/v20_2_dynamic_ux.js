@@ -125,7 +125,7 @@ test('PWA navigation prefers the current online shell',()=>{
   assert(manifest.includes('"name": "SHOP DMO"')&&!manifest.includes('"name": "GUN SHOP DMO"'),'installed PWA still uses the legacy name');
   assert(serviceWorker.includes("request.mode==='navigate'")&&serviceWorker.includes('Promise.race([network,timeout])'),'online navigation does not use a bounded network-first strategy');
   assert(serviceWorker.includes('NAVIGATION_NETWORK_TIMEOUT_MS=4000')&&serviceWorker.includes("cache.put('./index.html',response.clone())"),'stalled-navigation fallback or late cache refresh is missing');
-  assert(index.includes('20260915-v20.2-stability-7')&&serviceWorker.includes('gun-shop-dmo-v20-2-stability-7'),'PWA cache version is not advanced');
+  assert(index.includes('20260916-v20.2-login-8')&&serviceWorker.includes('gun-shop-dmo-v20-2-login-8'),'PWA cache version is not advanced');
 });
 
 test('storefront subcategory navigation is prominent and accessible',()=>{
