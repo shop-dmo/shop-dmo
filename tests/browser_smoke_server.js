@@ -2,7 +2,7 @@
 const http=require('http');
 const fs=require('fs');
 const path=require('path');
-const root=path.resolve(__dirname,'..');
+const root=path.resolve(__dirname,'..',process.env.DMO_SMOKE_BUILD==='1'?'dist':'.');
 const port=Number(process.env.DMO_SMOKE_PORT||4174);
 const adminDelayMs=Math.max(0,Number(process.env.DMO_SMOKE_ADMIN_DELAY_MS||0));
 const configuredBase=String(process.env.DMO_SMOKE_BASE||'').trim();
@@ -29,6 +29,6 @@ http.createServer((req,res)=>{
     let body='';req.on('data',chunk=>body+=chunk);req.on('end',()=>{let payload={};try{payload=JSON.parse(body||'{}');}catch(error){}if(payload.action==='login')return sendJson(res,{ok:true,token:'LOCAL-SMOKE-TOKEN',user:{userId:'LOCAL-SMOKE',displayName:'Local smoke test',role:'OWNER',status:'ACTIVE'}});if(payload.action==='getAdminData'){const reply=()=>sendJson(res,adminData(String(payload.scope||'dashboard')));return adminDelayMs?setTimeout(reply,adminDelayMs):reply();}if(payload.action==='logout'||payload.action==='saveSettings')return sendJson(res,{ok:true});sendJson(res,{ok:false,error:'LOCAL_SMOKE_READ_ONLY'});});return;
   }
   if(requestPath==='/config.js'){res.writeHead(200,{'Content-Type':'text/javascript;charset=utf-8','Cache-Control':'no-store'});return res.end(`window.DMO_CONFIG=${JSON.stringify({sheetsUrl:`http://127.0.0.1:${port}${basePath}/api`,refreshMs:600000,appVersion:'LOCAL-SMOKE'})};`);}
-  const file=path.resolve(root,requestPath==='/'?'index.html':requestPath.slice(1));if(!file.startsWith(root)){res.writeHead(403);return res.end('Forbidden');}
+  const file=path.resolve(root,requestPath==='/'?'index.html':requestPath.slice(1));if(!file.startsWith(root+path.sep)){res.writeHead(403);return res.end('Forbidden');}
   fs.readFile(file,(error,data)=>{if(error){res.writeHead(404);return res.end('Not found');}res.writeHead(200,{'Content-Type':types[path.extname(file)]||'application/octet-stream','Cache-Control':'no-store'});res.end(data);});
 }).listen(port,'127.0.0.1',()=>console.log(`Local smoke server ready at http://127.0.0.1:${port}${basePath}/`));

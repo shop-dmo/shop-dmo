@@ -2,3 +2,5 @@ node_modules/
 .facebook-worker-profile/
 .facebook-worker-state/
 npm-debug.log*
+dist/
+.local-audit/
