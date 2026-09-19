@@ -3,4 +3,5 @@ node_modules/
 .facebook-worker-state/
 npm-debug.log*
 dist/
+dist-rollback/
 .local-audit/

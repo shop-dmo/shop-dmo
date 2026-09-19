@@ -1,7 +1,7 @@
 'use strict';
 const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('node:vm'),crypto=require('node:crypto');
 const {PUBLIC_FILES}=require('../scripts/build-site');
-const root=path.resolve(__dirname,'..'),dist=path.join(root,'dist'),read=file=>fs.readFileSync(path.join(dist,file),'utf8');
+const root=path.resolve(__dirname,'..'),dist=path.join(root,process.argv.includes('--rollback')?'dist-rollback':'dist'),read=file=>fs.readFileSync(path.join(dist,file),'utf8');
 async function main(){
   assert.deepEqual(fs.readdirSync(dist).sort(),PUBLIC_FILES.slice().sort(),'only explicit public files may ship');
   const release=JSON.parse(read('release.json'));

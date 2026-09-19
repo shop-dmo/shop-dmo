@@ -1,5 +1,23 @@
 # Security/build checkpoint — 2026-09-17
 
+## Resume update — 2026-09-19 (read this first)
+
+Continued locally from a0ddb57. Current results: SECURITY-BUILD-REVIEW.md.
+Deployment/rollback instructions: SECURITY-DEPLOY-RUNBOOK.md.
+Added canonical LF build inputs, shared minifier settings, minified differential
+tests (8 PASS), redacted audit classification/workbook scan and fixed-baseline
+allowlisted rollback build. All automated suites run again successfully.
+Candidate `site-af78194fb7289c23cc83`; rollback `site-fe4d9b97d1f9e435f955`.
+Rebuild after commit for clean commit metadata in release.json.
+
+User has resumed; earlier pause text below is historical. An async permission
+question was sent for retrying fixture server startup on 4176/4177; no answer yet.
+Do not interpret the elapsed time or generic continue messages as a specific answer.
+No server retry, browser QA, remote changes, or Production mutations were performed.
+Source/UI templates are unchanged and compared in VM; no real browser timing yet.
+Do not rerun the whole audit from scratch: complete the outstanding items listed in
+the new review document, then update that document with actual evidence.
+
 ## User pause and authorization
 
 User is turning off PC1 and will return in 5–6 hours. Save and pause now.

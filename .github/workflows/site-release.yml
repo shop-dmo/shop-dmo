@@ -7,6 +7,13 @@ on:
         type: boolean
         default: false
         required: true
+      package:
+        description: 'Candidate or reviewed rollback of frontend e4b9b33 (backend is separate)'
+        type: choice
+        options:
+          - candidate
+          - rollback-baseline
+        default: candidate
 permissions:
   contents: read
 concurrency:
@@ -19,17 +26,25 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
+          fetch-depth: 0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '24'
           cache: npm
       - run: npm ci --ignore-scripts
       - run: npm test
-      - run: npm run build:site
-      - run: npm run test:site-build
+      - if: ${{ inputs.package != 'rollback-baseline' }}
+        run: npm run build:site
+      - if: ${{ inputs.package != 'rollback-baseline' }}
+        run: npm run test:site-build
+      - if: ${{ inputs.package == 'rollback-baseline' }}
+        run: npm run build:rollback
+      - if: ${{ inputs.package == 'rollback-baseline' }}
+        run: node tests/site_build.js --rollback
+      - run: npm run test:minified
       - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3
         with:
-          path: dist
+          path: ${{ inputs.package == 'rollback-baseline' && 'dist-rollback' || 'dist' }}
           retention-days: 30
   deploy:
     if: ${{ inputs.deploy }}
