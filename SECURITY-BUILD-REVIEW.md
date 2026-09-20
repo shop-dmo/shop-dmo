@@ -53,12 +53,25 @@ gzip 72,761 -> 61,556 bytes (~15.4%); CSS 48,950 -> 47,571 bytes
 ไม่ได้เพิ่ม per-request Users scan, obfuscation runtime หรือ dependency ที่โหลดใน browser
 ยังไม่มี before/after browser timing ที่ยืนยันได้สำหรับชุดนี้
 
+## อัปเดต Browser QA — 21 ก.ย. 2026
+
+ผู้ใช้อนุญาตเปิด Local 4176–4177 แล้ว และเปิดได้สำเร็จ ตรวจผ่าน browser จริง:
+ตะกร้าผสม 600 - 25 = 575 บาท, หมวดย่อย/จอมือถือ, ล็อกอินจำลอง,
+เมนูหลังบ้าน 16 ส่วน และปิด/เปิดเซิร์ฟเวอร์ทดสอบเพื่อยืนยัน offline recovery
+รายละเอียดและข้อจำกัดอยู่ใน `SECURITY-BROWSER-QA.md`
+
+แก้เฉพาะ fixture/test: ชนิดสินค้า, manifest MIME, public-file allowlist,
+network isolation และเพิ่ม dirty-modal behavioral regression (รวม 9 PASS)
+Full regression และ candidate/rollback checks ผ่านซ้ำ ไม่มีการ Deploy
+Warm Dashboard reload median: source 79 ms / build 85 ms (3 รอบต่อชุด)
+เป็นข้อมูลจำลองรวม overhead เครื่องมือ ไม่ได้พิสูจน์ว่า Production เร็วขึ้น
+
 ## งานค้างก่อนขออนุมัติ Deploy
 
-1. Browser fixture test / mobile / SW update/offline / actual page timings
-   รอบก่อน automatic approval ปฏิเสธ Start-Process เปิด fixture ports 4176/4177
-   (`blocked by policy`, ไม่ให้เหตุผลละเอียด); ยังไม่ได้เปิดหรือหลบข้อจำกัด
-   ได้ส่งคำถามขออนุญาตลองใหม่ไว้ แต่ยังไม่ได้รับคำตอบ ณ รายงานนี้
+1. Browser native-confirm dialog / clipboard payload / installed-PWA version upgrade
+   ยังไม่ยืนยันครบ: dialog ทำให้เครื่องมือควบคุมค้างกับ source ด้วย
+   logic ยืนยัน/ยกเลิกผ่าน VM regression; ไม่อ้างว่า UI warning ผ่านแล้ว
+   ส่วน local startup, mobile, offline recovery และ warm timing ตรวจแล้วตามรายงาน
 2. Live Apps Script integration ต้องใช้ test database; ยังไม่ทำ 8 legacy live cases
 3. CI workflow/Pages cutover ยังไม่ถูกเรียกจริง เพราะยังไม่ Push/Deploy
 4. ตรวจแผนองค์กร GitHub และตัดสินใจเรื่อง Private repository ก่อนอ้างว่าซ่อน source

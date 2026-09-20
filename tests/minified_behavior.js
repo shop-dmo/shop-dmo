@@ -5,7 +5,7 @@ const {minifyOptions,canonicalBytes}=require('../scripts/site-build-options');
 const original=fs.readFileSync(path.join(__dirname,'..','app.js'),'utf8');
 // Export test hooks before mangling so the tests don't depend on internal names.
 const functions=original.slice(0,original.indexOf('function touchAdminActivity'));
-const code=functions+'\nglobalThis.subject={state,pricingSummary,orderText,categoryDiscountHtml,themePalette,shopIdentity,productSubcategorySettings,shopPage,adminPage,adminBootstrapData,apiPost,submitAdminLogin,setRender:fn=>render=fn,setLoadAdmin:fn=>loadAdmin=fn};';
+const code=functions+'\nglobalThis.subject={state,pricingSummary,orderText,categoryDiscountHtml,themePalette,shopIdentity,productSubcategorySettings,shopPage,adminPage,adminBootstrapData,apiPost,submitAdminLogin,bindModalDirty,closeStateModal,setRender:fn=>render=fn,setLoadAdmin:fn=>loadAdmin=fn};';
 const built=minify_sync(code,minifyOptions()).code;
 const storage=()=>{const entries=new Map();return{getItem:k=>entries.get(k)||null,setItem:(k,v)=>entries.set(k,String(v)),removeItem:k=>entries.delete(k)};};
 function fixture(source){
@@ -43,6 +43,21 @@ test('storefront and 18 admin section HTML outputs are unchanged by production m
   const views=['dashboard','catalog','categories','images','inventory','analytics','reports','orders','customers','promotions','wiki','trash','calculator','settings','security','integrity','automation','logs'];
   for(const {api} of [source,minified]){api.state.adminToken='TEST';api.state.loading=false;api.state.adminUser={userId:'test',role:'OWNER'};api.state.adminData=api.adminBootstrapData();api.state.adminLoadedScopes=new Set(views);}
   for(const view of views){source.api.state.adminView=view;minified.api.state.adminView=view;assert.equal(minified.api.adminPage(),source.api.adminPage(),view);}
+});
+test('dirty modal input and cancel/confirm retain or discard edits identically after minification',()=>{
+  for(const compiled of [code,built]){
+    const {api,c}=fixture(compiled);let rendered=0,prompts=0;
+    api.setRender(()=>rendered++);
+    for(const kind of ['record','promo','category']){
+      const stateField={record:'editRecord',promo:'promoEdit',category:'categoryEdit'}[kind];
+      const draft={name:'unchanged fixture'};api.state[stateField]=draft;api.state.modalDirty[kind]=false;
+      const events={};c.document.getElementById=()=>({querySelectorAll:()=>[{addEventListener:(event,fn)=>events[event]=fn}]});
+      api.bindModalDirty('fixture-modal',kind);assert.equal(typeof events.input,'function');assert.equal(typeof events.change,'function');events.input();
+      c.confirm=()=>{prompts++;return false;};assert.equal(api.closeStateModal(kind),false);assert.equal(api.state[stateField],draft);assert.equal(api.state.modalDirty[kind],true);
+      c.confirm=()=>{prompts++;return true;};assert.equal(api.closeStateModal(kind),true);assert.equal(api.state[stateField],null);assert.equal(api.state.modalDirty[kind],false);
+    }
+    assert.equal(prompts,6);assert.equal(rendered,3);
+  }
 });
 async function main(){
   for(const {api,c} of [source,minified]){

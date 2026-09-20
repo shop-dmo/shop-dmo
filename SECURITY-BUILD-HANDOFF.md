@@ -1,5 +1,19 @@
 # Security/build checkpoint — 2026-09-17
 
+## Latest resume — 2026-09-21 (supersedes historical status below)
+
+User explicitly authorized fixture servers 4176–4177; startup now succeeds.
+See SECURITY-BROWSER-QA.md for real browser evidence and remaining gates.
+Full automated regression PASS; minified behavior now 9 PASS. Both build artifacts
+still pass. Browser storefront/cart/mobile/admin navigation and offline recovery
+were tested using mock data only. Native confirmation control stalled on source
+and build; clipboard payload and installed-PWA upgrade remain unverified in browser.
+Fixed fixture product kinds/MIME/allowlist, added network-isolation CSP and redacted
+request counts plus tests/browser_smoke_contract.js. Application pricing/UI and
+Worker source remain unchanged in this follow-up. No Production access/writes,
+push, deploy, visibility/Pages changes or PC2 action. See QA report for owner choices.
+Fixture servers stopped at handoff; ports 4176/4177 have zero listeners.
+
 ## Resume update — 2026-09-19 (read this first)
 
 Continued locally from a0ddb57. Current results: SECURITY-BUILD-REVIEW.md.
