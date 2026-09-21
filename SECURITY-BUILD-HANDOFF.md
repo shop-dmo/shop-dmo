@@ -1,5 +1,18 @@
 # Security/build checkpoint — 2026-09-17
 
+## Security remediation — 2026-09-21 (latest)
+
+Owner authorized private backup and removal of the exposed legacy workbook, without
+rewriting Git history or changing visibility. Backup verified byte-identical outside
+the repository; tracked workbook removed from current local publication sources.
+No runtime dependency on this workbook. See SECURITY-REMEDIATION.md.
+New publication privacy guard runs in both candidate/rollback workflow paths.
+Build, rollback, security 8/8, minified 9/9 and legacy audit 21 PASS rerun successfully.
+Eight live cases and remaining browser checks are NOT completed.
+STOP BEFORE PUSH/DEPLOY: owner must confirm legacy template accounts' credentials
+and sessions replaced/revoked or accounts disabled. Historical/public remote copies
+are not erased by this local removal. Never restore this workbook to a public path.
+
 ## Latest resume — 2026-09-21 (supersedes historical status below)
 
 User explicitly authorized fixture servers 4176–4177; startup now succeeds.

@@ -36,11 +36,15 @@ jobs:
       - if: ${{ inputs.package != 'rollback-baseline' }}
         run: npm run build:site
       - if: ${{ inputs.package != 'rollback-baseline' }}
-        run: npm run test:site-build
+        run: |
+          npm run test:site-build
+          node tests/publication_privacy.js --candidate
       - if: ${{ inputs.package == 'rollback-baseline' }}
         run: npm run build:rollback
       - if: ${{ inputs.package == 'rollback-baseline' }}
-        run: node tests/site_build.js --rollback
+        run: |
+          node tests/site_build.js --rollback
+          node tests/publication_privacy.js --rollback
       - run: npm run test:minified
       - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3
         with:

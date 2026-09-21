@@ -1,6 +1,7 @@
+param([Parameter(Mandatory=$true)][ValidateNotNullOrEmpty()][string]$WorkbookPath)
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.IO.Compression.FileSystem
-$auditPath = Join-Path $PSScriptRoot '../GUN-SHOP-DMO-V20-FINAL-Database.xlsx'
+$auditPath = $WorkbookPath
 $auditZip = [System.IO.Compression.ZipFile]::OpenRead((Resolve-Path $auditPath))
 function Read-AuditXml([string]$entry) {
     $zipEntry = $auditZip.GetEntry($entry)
