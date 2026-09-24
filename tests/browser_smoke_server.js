@@ -2,7 +2,9 @@
 const http=require('http');
 const fs=require('fs');
 const path=require('path');
-const root=path.resolve(__dirname,'..',process.env.DMO_SMOKE_BUILD==='1'?'dist':'.');
+const fixtureBuild=process.env.DMO_SMOKE_BUILD||'0';
+if(!['0','1','rollback'].includes(fixtureBuild))throw Error('DMO_SMOKE_BUILD must be 0, 1 or rollback');
+const root=path.resolve(__dirname,'..',fixtureBuild==='1'?'dist':fixtureBuild==='rollback'?'dist-rollback':'.');
 const port=Number(process.env.DMO_SMOKE_PORT||4174);
 const adminDelayMs=Math.max(0,Number(process.env.DMO_SMOKE_ADMIN_DELAY_MS||0));
 const configuredBase=String(process.env.DMO_SMOKE_BASE||'').trim();

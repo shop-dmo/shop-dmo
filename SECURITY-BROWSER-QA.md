@@ -81,7 +81,49 @@ Owner decisions / remaining gates before deployment:
    plan and private repository. Build-only Pages alone cannot hide GitHub source.
 2. Supply/authorize a separate test GAS/database environment for the eight live
    integration cases. Do not use Production writes as a substitute.
-3. Finish browser native-confirm/clipboard and installed-PWA upgrade testing; real
-   offline fallback is verified, version-upgrade behavior currently has VM coverage.
+3. Finish browser native-confirm/clipboard and installed-PWA upgrade testing.
+   Browser-tab service-worker version upgrade and offline fallback are verified below;
+   this does not establish separately installed Windows PWA behavior.
 4. Explicitly approve push, Pages Actions cutover and GAS deployment only after
    reviewing these results and the deployment runbook. URL remains unchanged.
+
+## Follow-up: actual browser service-worker upgrade (2026-09-21)
+
+Local-only fixture at 127.0.0.1:4176/shop-dmo/, with mock data and local API:
+- Loaded rollback shell site-fe4d9b97d1f9e435f955, verified script URLs in DOM.
+- Replaced only the fixture server with candidate site-af78194fb7289c23cc83.
+- Reload rendered candidate script URLs and the mock storefront.
+- Stopped the fixture server, then reloaded: candidate script URLs remained and
+  storefront rendered 28 mock products. Offline reload took about 4.24 seconds
+  including browser-tool overhead; not a Production performance measurement.
+- Fixture processes were stopped. No Production cache/session/data was changed.
+
+Fixture runner now accepts a fixed `DMO_SMOKE_BUILD=rollback` option, in addition
+to 0 (source) and 1 (candidate), and rejects other values.
+
+## Real Apps Script/Sheets integration (2026-09-24)
+
+After owner-granted authorization, editor run QA35ef1b80 completed from 14:22:26
+to 14:24:26 Asia/Bangkok on an isolated private copy: 8 PASS, 0 FAIL.
+Candidate GAS source was copied unchanged; an editor-only isolation harness used
+new QA-prefixed tables, not original rows. Verified cases:
+- Normal mixed-category order: server ignores forged totals, 600 minus 25 = 575;
+  saved pricing snapshot remains unchanged after changing the test discount setting.
+- Insufficient stock rejects without partial Orders/OrderItems/reservation writes.
+- Duplicate request returns the same order without another order row.
+- Repeated request reserves stock exactly once.
+- Cancellation releases reserved stock once, including repeat cancellation.
+- Picking state writes and repeat picking is idempotent.
+- Completion deducts stock once through valid transitions, including repeat completion.
+- Real session rows enforce OWNER/ADMIN/STAFF/VIEWER role checks and revocation.
+
+These are real GAS engine + Spreadsheet service integration tests, not a deployed
+HTTP/browser end-to-end flow. The local v20_1 audit's eight NOT TESTED labels refer
+to that separate E2E coverage and are not converted into unconditional PASS claims.
+The harness cleans up its main reservation and revokes synthetic test sessions.
+No Production orders/stock/users or Facebook/PC2 actions were used.
+
+Clipboard recheck: copy success toast displayed, but browser automation's virtual
+clipboard read returned empty and its Paste operation reported no data. Manual
+owner copy/paste verification requested on local mock cart (one mock seal, net 95).
+This is unresolved, not a demonstrated application defect or a PASS.
