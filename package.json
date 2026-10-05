@@ -11,7 +11,8 @@
     "test:site-build": "node tests/site_build.js",
     "test:security": "node tests/site_security.js",
     "build:rollback": "node scripts/build-site.js --rollback",
-    "test:minified": "node tests/minified_behavior.js"
+    "test:minified": "node tests/minified_behavior.js",
+    "test:confirmations": "node tests/confirmation_safety.js"
   },
   "dependencies": {
     "playwright-core": "^1.55.0"

@@ -481,6 +481,7 @@ function applyAdminRoleGuards(){
 }
 
 function render() {
+  if(state.page!=='admin'||!state.adminToken)document.getElementById('orderDecisionDialog')?.close();
   applyTheme();
   const adminMode = state.page === 'admin';
   const loadedAdminSettings=state.adminData?.settings;
@@ -1730,18 +1731,50 @@ async function saveOrderStatus(id) {
   } catch (error) { toast(error.message); } finally {state.adminActionPending='';render();}
 }
 
+function orderDecisionDialog(id,detail,restore=false){
+  if(document.getElementById('orderDecisionDialog'))return Promise.resolve(null);
+  return new Promise(resolve=>{
+    const previous=document.activeElement,dialog=document.createElement('dialog');
+    dialog.id='orderDecisionDialog';dialog.className='order-decision-dialog';
+    dialog.setAttribute('aria-labelledby','orderDecisionTitle');
+    dialog.setAttribute('aria-describedby','orderDecisionDetail');
+    dialog.innerHTML='<form><div class="modal-header"><h2 id="orderDecisionTitle"></h2><button type="button" class="modal-close" data-close aria-label="ปิด">×</button></div><p class="order-id-big" data-order-id></p><p id="orderDecisionDetail"></p><label data-reason-label>เหตุผลที่เก็บออเดอร์<input name="reason" maxlength="300" required autocomplete="off"></label><p data-error role="alert"></p><div class="chip-row modal-actions"><button type="button" class="btn" data-cancel>ยกเลิก</button><button type="submit" class="btn success" data-accept></button></div></form>';
+    dialog.querySelector('h2').textContent=restore?'ยืนยันกู้คืนออเดอร์':'ยืนยันเก็บออเดอร์เข้าถัง';
+    dialog.querySelector('[data-order-id]').textContent=String(id);
+    dialog.querySelector('#orderDecisionDetail').textContent=detail;
+    dialog.querySelector('[data-accept]').textContent=restore?'ยืนยันกู้คืน':'ยืนยันเก็บเข้าถัง';
+    const reason=dialog.querySelector('[name="reason"]');
+    reason.required=!restore;dialog.querySelector('[data-reason-label]').hidden=restore;
+    let settled=false;
+    const finish=value=>{if(settled)return;settled=true;dialog.remove();if(previous?.isConnected)previous.focus();resolve(value);};
+    dialog.querySelector('[data-close]').onclick=()=>finish(null);
+    dialog.querySelector('[data-cancel]').onclick=()=>finish(null);
+    dialog.addEventListener('cancel',event=>{event.preventDefault();finish(null);});
+    dialog.addEventListener('close',()=>finish(null));
+    // Backdrop clicks deliberately do nothing; only explicit controls can submit.
+    dialog.querySelector('form').onsubmit=event=>{
+      event.preventDefault();const value=reason.value.trim();
+      if(!restore&&!value){dialog.querySelector('[data-error]').textContent='กรุณาระบุเหตุผล';reason.focus();return;}
+      finish(restore?'':value);
+    };
+    document.body.appendChild(dialog);
+    try{dialog.showModal();(restore?dialog.querySelector('[data-cancel]'):reason).focus();}
+    catch(error){finish(null);toast('ไม่สามารถเปิดกล่องยืนยันได้ กรุณาใช้เบราว์เซอร์รุ่นปัจจุบัน');}
+  });
+}
 async function archiveOrderFromAdmin(id){
   if(state.adminActionPending)return;
   const order=[...(state.adminData?.orders||[]),...(state.adminData?.deletedOrders||[])].find(x=>String(x.orderId)===String(id));
   const legacy=String(order?.legacyOrder||'').toUpperCase()==='TRUE'||order?.legacyOrder===true;
   const detail=legacy?'ออเดอร์เก่านี้จะถูกเก็บเข้าถังโดยไม่เปลี่ยน Stock หรือ Reserved Stock':'ถ้าออเดอร์ยังจองสต๊อก ระบบจะยกเลิกและคืน Reserved Stock เพียงครั้งเดียว';
-  if(!confirm(`ยืนยันเก็บออเดอร์ ${id} เข้าถัง?\n\n${detail}`))return;
-  const reason=prompt(`ระบุเหตุผลที่เก็บออเดอร์\n${id}`,'เก็บออเดอร์จากหน้าจัดการ');
+  const tokenAtStart=state.adminToken;
+  const reason=await orderDecisionDialog(id,detail);
   if(reason===null)return;
+  if(!tokenAtStart||state.adminToken!==tokenAtStart||state.adminActionPending)return;
   if(!String(reason).trim()){toast('กรุณาระบุเหตุผล');return;}
-  try{state.adminActionPending=id;render();await apiPost({action:'archiveOrder',token:state.adminToken,orderId:id,reason:String(reason).trim()});toast('เก็บออเดอร์เข้าถังแล้ว');await loadAdmin();}catch(error){toast(error.message);}finally{state.adminActionPending='';render();}
+  try{state.adminActionPending=id;render();await apiPost({action:'archiveOrder',token:state.adminToken,orderId:id,reason:String(reason).trim()});state.adminLoadedScopes.delete('orders');toast('เก็บออเดอร์เข้าถังแล้ว');await loadAdmin(true,'orders');if(state.adminScopeErrors.orders)state.adminScopeErrors.orders='เก็บออเดอร์สำเร็จแล้ว แต่โหลดรายการล่าสุดไม่สำเร็จ กรุณาลองโหลดอีกครั้ง';}catch(error){toast(error.message);}finally{state.adminActionPending='';render();}
 }
-async function restoreOrderFromAdmin(id){if(state.adminActionPending)return;if(!confirm(`ยืนยันกู้คืนออเดอร์ ${id}?\n\nระบบจะไม่จองหรือตัดสต๊อกอัตโนมัติ`))return;try{state.adminActionPending=id;render();await apiPost({action:'restoreArchivedOrder',token:state.adminToken,orderId:id});toast('กู้คืนออเดอร์แล้ว โดยคงสถานะสต๊อกเดิม');await loadAdmin();}catch(error){toast(error.message);}finally{state.adminActionPending='';render();}}
+async function restoreOrderFromAdmin(id){if(state.adminActionPending)return;const tokenAtStart=state.adminToken;if(await orderDecisionDialog(id,'ระบบจะคงสถานะและสต๊อกเดิม ไม่จองหรือตัดสต๊อกอัตโนมัติ',true)===null)return;if(!tokenAtStart||state.adminToken!==tokenAtStart||state.adminActionPending)return;try{state.adminActionPending=id;render();await apiPost({action:'restoreArchivedOrder',token:state.adminToken,orderId:id});state.adminLoadedScopes.delete('orders');toast('กู้คืนออเดอร์แล้ว โดยคงสถานะสต๊อกเดิม');await loadAdmin(true,'orders');if(state.adminScopeErrors.orders)state.adminScopeErrors.orders='กู้คืนออเดอร์สำเร็จแล้ว แต่โหลดรายการล่าสุดไม่สำเร็จ กรุณาลองโหลดอีกครั้ง';}catch(error){toast(error.message);}finally{state.adminActionPending='';render();}}
 
 async function saveSettingsAction() {
   if(state.settingsSaving)return;

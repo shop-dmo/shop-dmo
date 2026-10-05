@@ -5,6 +5,11 @@ const path=require('path');
 const fixtureBuild=process.env.DMO_SMOKE_BUILD||'0';
 if(!['0','1','rollback'].includes(fixtureBuild))throw Error('DMO_SMOKE_BUILD must be 0, 1 or rollback');
 const root=path.resolve(__dirname,'..',fixtureBuild==='1'?'dist':fixtureBuild==='rollback'?'dist-rollback':'.');
+// Optional visible shell marker for owner-operated installed-PWA upgrade checks.
+// Fixture only: never modify the build artifacts or application/cache code.
+const showRelease=process.env.DMO_SMOKE_RELEASE_BADGE==='1';
+const fixtureRelease=showRelease?JSON.parse(fs.readFileSync(path.join(root,'release.json'),'utf8')).version:'';
+if(showRelease&&!/^site-[a-f0-9]+$/.test(fixtureRelease))throw Error('Invalid fixture release');
 const port=Number(process.env.DMO_SMOKE_PORT||4174);
 const adminDelayMs=Math.max(0,Number(process.env.DMO_SMOKE_ADMIN_DELAY_MS||0));
 const configuredBase=String(process.env.DMO_SMOKE_BASE||'').trim();
@@ -44,5 +49,5 @@ http.createServer((req,res)=>{
   const relativeFile=requestPath==='/'?'index.html':requestPath.slice(1);
   if(!shellFiles.has(relativeFile)){res.writeHead(404);return res.end('Not found');}
   const file=path.resolve(root,relativeFile);if(!file.startsWith(root+path.sep)){res.writeHead(403);return res.end('Forbidden');}
-  fs.readFile(file,(error,data)=>{if(error){res.writeHead(404);return res.end('Not found');}res.writeHead(200,{'Content-Type':types[path.extname(file)]||'application/octet-stream','Cache-Control':'no-store'});res.end(data);});
+  fs.readFile(file,(error,data)=>{if(error){res.writeHead(404);return res.end('Not found');}if(showRelease&&relativeFile==='index.html')data=data.toString().replace('</body>',`<aside style="position:fixed;bottom:0;left:0;z-index:99999;background:#fff;color:#000;padding:8px;font:16px monospace">LOCAL PWA QA: ${fixtureRelease}</aside></body>`);res.writeHead(200,{'Content-Type':types[path.extname(file)]||'application/octet-stream','Cache-Control':'no-store'});res.end(data);});
 }).listen(port,'127.0.0.1',()=>console.log(`Local smoke server ready at http://127.0.0.1:${port}${basePath}/`));
