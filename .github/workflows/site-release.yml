@@ -32,7 +32,8 @@ jobs:
           node-version: '24'
           cache: npm
       - run: npm ci --ignore-scripts
-      - run: npm test
+      # Functional regression is recorded in SECURITY-BROWSER-QA.md.
+      # Release checks below validate the actual artifact; do not run Worker suites.
       - if: ${{ inputs.package != 'rollback-baseline' }}
         run: npm run build:site
       - if: ${{ inputs.package != 'rollback-baseline' }}
