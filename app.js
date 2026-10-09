@@ -52,6 +52,8 @@ const state = {
   category: 'ALL',
   section: 'ALL',
   search: '',
+  catalogSort: 'DEFAULT',
+  availableOnly: false,
   selectedSearchKey: '',
   seals: [],
   items: [],
@@ -523,12 +525,23 @@ function filteredProducts() {
   return catalog().map((product) => ({ product, score: query ? smartSearchScore(product, query) : 1 })).filter(({ product, score }) => {
     if (state.selectedSearchKey && productKey(product) !== state.selectedSearchKey) return false;
     if (state.wishlistOnly && !isFavorite(product)) return false;
+    if (state.availableOnly && (!canBuy(product) || product.status === 'CHECK_STOCK' || availableStock(product) === '' || !Number.isFinite(Number(availableStock(product))) || Number(availableStock(product)) <= 0)) return false;
     if (state.catalogType === 'SEAL' && state.category !== 'ALL' && product.category !== state.category) return false;
     if (['SEAL','ITEM','SERVICE'].includes(state.catalogType) && state.section !== 'ALL' && productSubcategoryValue(product) !== state.section) return false;
     return score > 0;
-  }).sort((a, b) => query
+  }).sort((a, b) => {
+    const nameOrder = String(a.product.name).localeCompare(String(b.product.name), 'th');
+    if (state.catalogSort === 'NAME') return nameOrder;
+    if (['PRICE_ASC', 'PRICE_DESC'].includes(state.catalogSort)) {
+      const price = (p) => p.price !== '' && p.price != null && Number.isFinite(Number(p.price)) ? Number(p.price) : null;
+      const left = price(a.product), right = price(b.product);
+      if (left === null || right === null) return left === right ? nameOrder : left === null ? 1 : -1;
+      return (state.catalogSort === 'PRICE_DESC' ? right - left : left - right) || nameOrder;
+    }
+    return query
     ? b.score - a.score || (Number(a.product.sortOrder) || 9999) - (Number(b.product.sortOrder) || 9999)
-    : (Number(a.product.sortOrder) || 9999) - (Number(b.product.sortOrder) || 9999) || String(a.product.name).localeCompare(String(b.product.name), 'th'))
+    : (Number(a.product.sortOrder) || 9999) - (Number(b.product.sortOrder) || 9999) || nameOrder;
+  })
     .map(({ product }) => product);
 }
 
@@ -565,13 +578,15 @@ function productImageMarkup(product,className='product-img'){
 function productCard(product) {
   const image=productImageMarkup(product);
   const description = product.description ? `<div class="product-description">${html(product.description)}</div>` : '';
-  return `<article class="product-card">
+  const categoryText=product.kind==='SEAL'?`${html(product.category)} • ${html(sectionLabel(product.section))}`:html(subcategoryLabel(product.kind,product.serviceCategory||product.itemCategory)|| (product.kind==='TMONEY'?'เงิน T':'บริการ'));
+  return `<article class="product-card visual-product-card">
     <div class="image-wrap">${image}<button class="favorite-btn ${isFavorite(product) ? 'active' : ''}" data-favorite="${html(productKey(product))}" aria-label="รายการโปรด">${isFavorite(product) ? '♥' : '♡'}</button></div>
     <div class="product-main">
       <div class="product-name">${html(product.name)}</div>
-      <div class="product-meta">${productMeta(product)}</div>
+      <div class="product-meta">${categoryText}</div>
+      <div class="product-price">${formatProductPrice(product)}</div>
       ${product.tags ? `<div class="tag-line">${String(product.tags).split('|').filter(Boolean).slice(0,4).map((tag)=>`<span class="mini-tag">${html(tag)}</span>`).join('')}</div>` : ''}
-      ${description}
+      ${description ? `<details class="product-details"><summary>รายละเอียด</summary>${description}</details>` : ''}
       <div class="product-status">${stockText(product)}</div>
       ${product.wikiUrl ? `<a class="wiki-link" href="${html(product.wikiUrl)}" target="_blank" rel="noopener">📚 ดูข้อมูล DMO Wiki</a>` : ''}
     </div>
@@ -595,6 +610,7 @@ function shopPage() {
       <div class="shop-heading"><div><h2 class="panel-title">${state.wishlistOnly ? '❤️ รายการโปรด' : state.catalogType === 'SEAL' ? 'รายการซีล' : state.catalogType === 'ITEM' ? 'ไอเทมในเกม' : state.catalogType === 'TMONEY' ? 'เงิน T' : 'บริการของร้าน'}</h2><p class="product-meta">${state.wishlistOnly ? 'รายการโปรดเก็บอยู่ในอุปกรณ์เครื่องนี้' : state.catalogType==='TMONEY'?'กรอกจำนวน T ที่ต้องการ ระบบคำนวณจาก Rate ปัจจุบันและตรวจ Stock จริงอีกครั้งที่ Server':'เลือกจำนวนและเพิ่มลงรายการ จากนั้นส่งให้ร้านตรวจสอบสต๊อก'}</p></div></div>
       <div class="commerce-flow" aria-label="ขั้นตอนสั่งซื้อ"><b>1 เลือกสินค้า</b><i>→</i><b>2 ตรวจตะกร้า</b><i>→</i><b>3 Copy/ส่งให้ร้าน</b><i>→</i><b>4 ร้านตรวจและจัดของ</b><i>→</i><b>5 เสร็จสิ้น</b></div>
       <div class="filters">
+        <div class="catalog-toolbar"><label for="catalogSort">เรียงสินค้า <select id="catalogSort">${[['DEFAULT','ลำดับของร้าน'],['NAME','ชื่อ ก–ฮ'],['PRICE_ASC','ราคา ต่ำ–สูง'],['PRICE_DESC','ราคา สูง–ต่ำ']].map(([value,label])=>`<option value="${value}" ${state.catalogSort===value?'selected':''}>${label}</option>`).join('')}</select></label><label class="available-filter"><input id="availableOnly" type="checkbox" ${state.availableOnly?'checked':''}> เฉพาะที่มีสต๊อกยืนยัน</label><small>ราคาต่อหน่วย • ร้านตรวจสต๊อกก่อนยืนยัน</small></div>
         <div class="smart-search-wrap"><input class="search" id="searchInput" autocomplete="off" placeholder="ค้นหาชื่อ Alias สาย หรือพิมพ์คลาดเคลื่อนได้..." value="${html(state.search)}">${state.search ? `<button class="search-clear" id="searchClearBtn">×</button>` : ''}${suggestions.length ? `<div class="search-suggestions">${suggestions.map((p)=>`<button data-search-suggestion="${html(p.name)}" data-search-product="${html(productKey(p))}"><b>${html(p.name)}</b><span>${html(productMeta(p))}</span></button>`).join('')}</div>` : ''}</div>
         ${state.recentSearches.length ? `<div class="recent-searches"><span>ค้นหาล่าสุด:</span>${state.recentSearches.map((q)=>`<button data-recent-search="${html(q)}">${html(q)}</button>`).join('')}<button id="clearRecentSearches">ล้าง</button></div>` : ''}
         ${state.catalogType === 'SEAL' ? `<div class="chip-row">${['ALL', 'AT', 'HT', 'CT', 'HP', 'DS', 'DE', 'EV', 'BL'].map((category) => `<button class="filter-chip ${state.category === category ? 'active' : ''}" data-cat="${category}">${category === 'ALL' ? 'ทั้งหมด' : category}</button>`).join('')}</div>` : ''}
@@ -663,10 +679,11 @@ function cartPanel() {
   const threshold = Number(state.settings.promoThreshold) || 100;
   const promotionSets = Math.floor(pricing.sealSubtotal / threshold);
   const remaining = pricing.sealSubtotal ? threshold - (pricing.sealSubtotal % threshold) : threshold;
-  const submitCooldown=Math.max(0,Math.ceil((Number(state.orderCooldownUntil||0)-Date.now())/1000));
+  const facebookContact=safeExternalUrl(cfg.facebookUrl||state.settings.facebookUrl);
+  const messengerContact=safeExternalUrl(cfg.messengerUrl||state.settings.messengerUrl);
   return `<aside class="panel cart-panel">
     <h2 class="panel-title">🛒 รายการที่เลือก (${state.cart.length})</h2>
-    <div class="checkout-steps"><span class="done"><b>1</b> เลือกสินค้า</span><span class="${state.cart.length ? 'active' : ''}"><b>2</b> กรอกข้อมูล</span><span><b>3</b> รับเลขออเดอร์</span></div>
+    <div class="checkout-steps"><span class="done"><b>1</b> เลือกสินค้า</span><span class="${state.cart.length ? 'active' : ''}"><b>2</b> คัดลอกรายการ</span><span><b>3</b> ส่งในแชต Facebook</span></div>
     <div class="cart-list">${state.cart.length ? state.cart.map(cartItem).join('') : '<div class="empty">ยังไม่มีสินค้า</div>'}</div>
     ${categoryDiscountHtml(pricing)}<div class="total-box"><span>ราคาก่อนลด ${money(subtotal)} • ส่วนลดรวม ${money(pricing.discount)}</span><span class="total-price">สุทธิ ${money(total)} บาท</span></div>${pricing.messages.length?`<div class="promo"><b>โปรโมชั่นอื่น</b><br>${pricing.messages.map(html).join("<br>")}</div>`:""}
     <div class="promo">${promotionSets > 0 ? `🎁 โปร D2 คิดจากยอดซีลเท่านั้น: ${money(pricing.sealSubtotal)} บาท<br>ได้รับ D2 ${money(promotionSets * (Number(state.settings.promoReward) || 150))} อัน` : `โปร D2 คิดจากยอดซีลเท่านั้น<br>ซื้อซีลเพิ่มอีก ${money(remaining)} บาทเพื่อรับ D2`}</div>
@@ -679,8 +696,9 @@ function cartPanel() {
       ${state.recentOrders.length?`<details class="customer-help"><summary>🕘 รายการล่าสุดของฉัน (${state.recentOrders.length})</summary><div class="recent-order-list">${state.recentOrders.map((o,i)=>`<div><span>${html(o.orderId||'ยังไม่มีเลขออเดอร์')} • ${money(o.total)} บาท</span><button class="btn small" data-repeat-order="${i}">ซื้อซ้ำ</button></div>`).join('')}</div></details>`:''}
       <button class="btn success copy-order-primary" id="copyOnlyBtn" ${state.cart.length ? '' : 'disabled'}>📋 คัดลอกรายการเพื่อส่งให้ร้าน</button>
       ${state.copyNotice?`<div class="copy-success" role="status">${html(state.copyNotice)}</div>`:''}
-      ${safeExternalUrl(state.settings.facebookUrl)?`<a class="btn facebook-btn" href="${html(safeExternalUrl(state.settings.facebookUrl))}" target="_blank" rel="noopener">💬 เปิด Facebook / Messenger ของร้าน</a>`:''}
-      <button class="btn" id="saveOrderBtn" ${state.cart.length && !state.orderSubmitting && !submitCooldown ? '' : 'disabled'}>${state.orderSubmitting ? '⏳ กำลังส่งออเดอร์...' : submitCooldown?`รอ ${submitCooldown} วินาทีก่อนส่งออเดอร์ใหม่`:'ส่งรายการเข้าระบบหลังร้าน'}</button>
+      ${messengerContact?`<a class="btn primary facebook-btn" href="${html(messengerContact)}" target="_blank" rel="noopener noreferrer">💬 เปิด Messenger เพื่อวางรายการ</a>`:'<button class="btn primary" disabled>💬 Messenger — รอตั้งค่าลิงก์ร้าน</button>'}
+      ${facebookContact?`<a class="btn facebook-btn" href="${html(facebookContact)}" target="_blank" rel="noopener noreferrer">👤 เปิดโปรไฟล์ Facebook ร้าน</a>`:'<button class="btn" disabled>👤 โปรไฟล์ Facebook — รอตั้งค่าลิงก์ร้าน</button>'}
+      <small class="product-meta">คัดลอกรายการ แล้ววางในแชตและกดส่งด้วยตัวเอง • เว็บไซต์ไม่บันทึกออเดอร์เข้าหลังร้าน</small>
       <button class="btn" id="favoriteCartBtn" ${state.cart.length ? '' : 'disabled'}>❤️ บันทึกทั้งหมดเป็นรายการโปรด</button><button class="btn danger" id="clearCartBtn" ${state.cart.length ? '' : 'disabled'}>ล้างรายการ</button>
     </div>
   </aside>`;
@@ -1994,11 +2012,13 @@ function bind() {
   const refresh = document.getElementById('refreshBtn'); if (refresh) refresh.onclick = () => loadData(true);
   const search = document.getElementById('searchInput'); if (search) { search.oninput = (event) => { state.search = event.target.value; state.selectedSearchKey = '';state.catalogVisible=60; scheduleInputRender('searchInput', 120); }; search.onkeydown = (event) => { if (event.key === 'Enter') { clearTimeout(inputRenderTimer); state.selectedSearchKey = ''; rememberSearch(state.search); render(); } }; }
   const searchClear = document.getElementById('searchClearBtn'); if (searchClear) searchClear.onclick = () => { state.search = ''; state.selectedSearchKey = '';state.catalogVisible=60; render(); };
+  const catalogSort=document.getElementById('catalogSort');if(catalogSort)catalogSort.onchange=()=>{state.catalogSort=['DEFAULT','NAME','PRICE_ASC','PRICE_DESC'].includes(catalogSort.value)?catalogSort.value:'DEFAULT';state.catalogVisible=60;renderPreservingScroll();};
+  const availableOnly=document.getElementById('availableOnly');if(availableOnly)availableOnly.onchange=()=>{state.availableOnly=availableOnly.checked;state.catalogVisible=60;renderPreservingScroll();};
   document.querySelectorAll('[data-search-suggestion]').forEach((button) => button.onclick = () => { state.search = button.dataset.searchSuggestion; state.selectedSearchKey = button.dataset.searchProduct || ''; rememberSearch(state.search); render(); });
   document.querySelectorAll('[data-recent-search]').forEach((button) => button.onclick = () => { state.search = button.dataset.recentSearch; state.selectedSearchKey = ''; render(); });
   const clearRecent = document.getElementById('clearRecentSearches'); if (clearRecent) clearRecent.onclick = () => { state.recentSearches = []; localStorage.removeItem('dmo_recent_searches'); render(); };
   const loadMoreProductsBtn=document.getElementById('loadMoreProductsBtn');if(loadMoreProductsBtn)loadMoreProductsBtn.onclick=()=>{state.catalogVisible+=60;render();};
-  const emptyResetBtn=document.getElementById('emptyResetBtn');if(emptyResetBtn)emptyResetBtn.onclick=()=>{state.search='';state.selectedSearchKey='';state.category='ALL';state.section='ALL';state.catalogVisible=60;render();};
+  const emptyResetBtn=document.getElementById('emptyResetBtn');if(emptyResetBtn)emptyResetBtn.onclick=()=>{state.search='';state.selectedSearchKey='';state.category='ALL';state.section='ALL';state.availableOnly=false;state.catalogVisible=60;render();};
   document.querySelectorAll('[data-add]').forEach((button) => button.onclick = () => { const quantity = document.querySelector(`[data-qty="${CSS.escape(button.dataset.add)}"]`); addToCart(button.dataset.add, quantity && quantity.value); });
   document.querySelectorAll('[data-inc]').forEach((button) => button.onclick = () => { const item = state.cart.find((entry) => entry.id === button.dataset.inc); const product=item&&allProducts().find((entry)=>entry.id===item.id&&entry.kind===item.kind); if(item&&product){if(item.quantity>=productMaxQty(product))toast(stockLimitMessage(product));else item.quantity+=1;} renderPreservingScroll(); });
   document.querySelectorAll('[data-dec]').forEach((button) => button.onclick = () => { const item = state.cart.find((entry) => entry.id === button.dataset.dec); if (item) { item.quantity -= 1; if (item.quantity <= 0) state.cart = state.cart.filter((entry) => entry.id !== item.id); } renderPreservingScroll(); });

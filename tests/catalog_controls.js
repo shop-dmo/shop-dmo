@@ -1,0 +1,16 @@
+'use strict';
+const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
+const original=fs.readFileSync(require('node:path').join(__dirname,'../app.js'),'utf8');
+const storage={getItem:()=>null,setItem(){},removeItem(){}};
+const c={console,URL,URLSearchParams,setTimeout,clearTimeout,location:{hash:''},localStorage:storage,sessionStorage:storage,navigator:{},window:{DMO_CONFIG:{},addEventListener(){}},document:{getElementById:()=>null,querySelector:()=>null,querySelectorAll:()=>[]}};
+vm.createContext(c);vm.runInContext(original.slice(0,original.indexOf('function touchAdminActivity'))+'\nglobalThis.subject={state,filteredProducts};',c);
+const {state,filteredProducts}=c.subject;
+state.seals=[{id:'a',name:'A',kind:'SEAL',price:20,availableStock:3,status:'ACTIVE',sortOrder:1},{id:'b',name:'B',kind:'SEAL',price:10,availableStock:0,status:'ACTIVE',sortOrder:2},{id:'c',name:'C',kind:'SEAL',price:30,availableStock:'',status:'CHECK_STOCK',sortOrder:3},{id:'d',name:'D',kind:'SEAL',price:null,availableStock:2,status:'ACTIVE',sortOrder:4}];
+const ids=()=>Array.from(filteredProducts(),p=>p.id);
+assert.deepEqual(ids(),['a','b','c','d']);
+state.catalogSort='PRICE_ASC';assert.deepEqual(ids(),['b','a','c','d']);
+state.catalogSort='PRICE_DESC';assert.deepEqual(ids(),['c','a','b','d']);
+state.availableOnly=true;assert.deepEqual(ids(),['a','d']);
+state.catalogSort='NAME';assert.deepEqual(ids(),['a','d']);
+assert.equal(state.seals[0].price,20);assert.equal(state.seals[0].availableStock,3);
+console.log('PASS catalog default/name/price ordering, unknown price last, confirmed availability, immutable records');

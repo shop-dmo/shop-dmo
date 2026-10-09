@@ -3,5 +3,7 @@ window.DMO_CONFIG = {
   refreshMs: 45000,
   appVersion: "3.2.5-v20.2-login",
   shopName: "SHOP DMO",
+  facebookUrl: "https://www.facebook.com/kreangkrai.namkeaw/",
+  messengerUrl: "https://m.me/kreangkrai.namkeaw",
   ownerName: ""
 };

@@ -32,6 +32,9 @@ const gameItems=[{id:'I-1',name:'ไอเทมทดสอบ',itemCategory:'E
 const services=[{id:'V-1',name:'บริการทดสอบ',serviceCategory:'DUNGEON',description:'ใช้ตรวจหน้าจอเท่านั้น',price:300,unit:'ครั้ง',status:'ACTIVE',availableStock:999,sortOrder:1}];
 for(const [rows,kind] of [[seals,'SEAL'],[gameItems,'ITEM'],[services,'SERVICE']])for(const row of rows)row.kind=kind;
 const publicData={ok:true,seals,gameItems,services,moneyT:null,promotions:[],settings,stockUpdatedAt:new Date().toISOString()};
+// Public contact links only; fixture API remains local and read-only.
+settings.facebookUrl='https://www.facebook.com/kreangkrai.namkeaw/';
+settings.messengerUrl='https://m.me/kreangkrai.namkeaw';
 function sendJson(res,data){res.writeHead(200,{'Content-Type':'application/json;charset=utf-8','Cache-Control':'no-store','Access-Control-Allow-Origin':'*'});res.end(JSON.stringify(data));}
 function adminData(scope){const base={ok:true,settings,security:{actor:{userId:'LOCAL-SMOKE',displayName:'Local smoke test',role:'OWNER',status:'ACTIVE'},account:{userId:'LOCAL-SMOKE',displayName:'Local smoke test',role:'OWNER',status:'ACTIVE'},environment:'TEST',users:[],sessionDays:7,autoLockMinutes:30,apiKeyConfigured:false},databaseVersion:'3.2.0'};if(scope==='dashboard')base.dashboardSummary={newOrders:0,preparingOrders:0,readyOrders:0,completedOrders:0,salesTotal:0,lowStock:0,checkOrOut:0,customerCount:0,repeatCustomers:0,activePromos:0,categoryCounts:[['AT',10],['HT',9],['CT',9],['HP',0],['DS',0],['DE',0],['EV',0],['BL',0]]};if(['catalog','images','inventory','calculator','categories'].includes(scope))Object.assign(base,{seals,gameItems,services,moneyT:null});if(scope==='promotions')base.promotions=[];return base;}
 http.createServer((req,res)=>{
@@ -47,6 +50,11 @@ http.createServer((req,res)=>{
   }
   if(requestPath==='/config.js'){res.writeHead(200,{'Content-Type':'text/javascript;charset=utf-8','Cache-Control':'no-store'});return res.end(`window.DMO_CONFIG=${JSON.stringify({sheetsUrl:`http://127.0.0.1:${port}${basePath}/api`,refreshMs:600000,appVersion:'LOCAL-SMOKE'})};`);}
   const relativeFile=requestPath==='/'?'index.html':requestPath.slice(1);
+  // Readable-source previews need fresh asset URLs; do not change built PWA QA.
+  if(relativeFile==='index.html'&&fixtureBuild==='0'){
+    const previewHtml=fs.readFileSync(path.join(root,'index.html'),'utf8').replace(/(app\.js|app\.css|config\.js)\?v=[^"\s]+/g,(_match,asset)=>`${asset}?v=local-preview-${fs.statSync(path.join(root,asset)).mtimeMs}`);
+    res.writeHead(200,{'Content-Type':'text/html;charset=utf-8','Cache-Control':'no-store'});return res.end(previewHtml);
+  }
   if(!shellFiles.has(relativeFile)){res.writeHead(404);return res.end('Not found');}
   const file=path.resolve(root,relativeFile);if(!file.startsWith(root+path.sep)){res.writeHead(403);return res.end('Forbidden');}
   fs.readFile(file,(error,data)=>{if(error){res.writeHead(404);return res.end('Not found');}if(showRelease&&relativeFile==='index.html')data=data.toString().replace('</body>',`<aside style="position:fixed;bottom:0;left:0;z-index:99999;background:#fff;color:#000;padding:8px;font:16px monospace">LOCAL PWA QA: ${fixtureRelease}</aside></body>`);res.writeHead(200,{'Content-Type':types[path.extname(file)]||'application/octet-stream','Cache-Control':'no-store'});res.end(data);});
