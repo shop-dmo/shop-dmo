@@ -3,7 +3,7 @@ const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('nod
 const original=fs.readFileSync(require('node:path').join(__dirname,'../app.js'),'utf8');
 const storage={getItem:()=>null,setItem(){},removeItem(){}};
 const c={console,URL,URLSearchParams,setTimeout,clearTimeout,location:{hash:''},localStorage:storage,sessionStorage:storage,navigator:{},window:{DMO_CONFIG:{},addEventListener(){}},document:{getElementById:()=>null,querySelector:()=>null,querySelectorAll:()=>[]}};
-vm.createContext(c);vm.runInContext(original.slice(0,original.indexOf('function touchAdminActivity'))+'\nglobalThis.subject={state,filteredProducts};',c);
+vm.createContext(c);vm.runInContext(original.slice(0,original.indexOf('function touchAdminActivity'))+'\nglobalThis.subject={state,filteredProducts,productImageMarkup};',c);
 const {state,filteredProducts}=c.subject;
 state.seals=[{id:'a',name:'A',kind:'SEAL',price:20,availableStock:3,status:'ACTIVE',sortOrder:1},{id:'b',name:'B',kind:'SEAL',price:10,availableStock:0,status:'ACTIVE',sortOrder:2},{id:'c',name:'C',kind:'SEAL',price:30,availableStock:'',status:'CHECK_STOCK',sortOrder:3},{id:'d',name:'D',kind:'SEAL',price:null,availableStock:2,status:'ACTIVE',sortOrder:4}];
 const ids=()=>Array.from(filteredProducts(),p=>p.id);
@@ -14,3 +14,22 @@ state.availableOnly=true;assert.deepEqual(ids(),['a','d']);
 state.catalogSort='NAME';assert.deepEqual(ids(),['a','d']);
 assert.equal(state.seals[0].price,20);assert.equal(state.seals[0].availableStock,3);
 console.log('PASS catalog default/name/price ordering, unknown price last, confirmed availability, immutable records');
+const assets=require('../scripts/public-image-assets');
+Object.assign(c.window.DMO_CONFIG,{productImages:assets.productImages,sealImageMatches:assets.sealImageMatches});
+for(const [id,row] of Object.entries(assets.sealImageMatches)){
+  assert(c.subject.productImageMarkup({id,name:row.name,kind:'SEAL'}).includes(row.path));
+  assert(!c.subject.productImageMarkup({id,name:row.name+' changed',kind:'SEAL'}).includes(row.path));
+}
+console.log('PASS all exact-name seal images render; renamed records do not inherit a mismatched image');
+vm.runInContext('globalThis.feedback=[]; renderPreservingScroll=()=>{}; toast=message=>feedback.push(message); globalThis.cartSubject={productCard,addToCart};',c);
+state.cart=[];
+assert(!c.cartSubject.productCard(state.seals[0]).includes('product-selection-count'));
+c.cartSubject.addToCart('a',2);
+assert.equal(state.cart[0].quantity,2);
+assert(c.cartSubject.productCard(state.seals[0]).includes('product-selection-count'));
+assert(c.cartSubject.productCard(state.seals[0]).includes('✓ เพิ่มอีก'));
+assert(c.feedback.at(-1).includes('ในตะกร้ารวม 2'));
+c.cartSubject.addToCart('a',1);assert.equal(state.cart[0].quantity,3);
+c.cartSubject.addToCart('a',1);assert.equal(state.cart[0].quantity,3);
+state.cart=[];assert(!c.cartSubject.productCard(state.seals[0]).includes('product-selection-count'));
+console.log('PASS add feedback, accumulated quantity, stock limit and cleared-cart indicator');

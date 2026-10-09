@@ -13,7 +13,7 @@ async function main(){
   for(const [,file] of html.matchAll(/(?:src|href)="([^"?#]+)(?:[^"#]*)"/g))assert(PUBLIC_FILES.includes(file),'asset escapes public package: '+file);
   for(const file of ['app.js','config.js','app.css'])assert(html.includes(file+'?v='+release.version));
   assert(read('sw.js').includes('gun-shop-dmo-'+release.version));assert.equal(JSON.parse(read('manifest.webmanifest')).start_url,'./');
-  const sourceConfig={window:{}},builtConfig={window:{}};vm.runInNewContext(fs.readFileSync(path.join(root,'config.js'),'utf8'),sourceConfig);vm.runInNewContext(read('config.js'),builtConfig);assert.equal(JSON.stringify(sourceConfig.window.DMO_CONFIG),JSON.stringify(builtConfig.window.DMO_CONFIG));
+  const sourceConfig={window:{}},builtConfig={window:{}};vm.runInNewContext(fs.readFileSync(path.join(root,'config.js'),'utf8'),sourceConfig);vm.runInNewContext(read('config.js'),builtConfig);delete builtConfig.window.DMO_CONFIG.productImages;delete builtConfig.window.DMO_CONFIG.sealImageMatches;assert.equal(JSON.stringify(sourceConfig.window.DMO_CONFIG),JSON.stringify(builtConfig.window.DMO_CONFIG));
   console.log('PASS public allowlist, hashes, syntax, no maps, relative assets, cache version and unchanged config');
   const handlers={},cacheEntries=new Map(),deleted=[],puts=[];let requests=0,fail=false;
   const scope='https://example.test/shop-dmo/',cache={addAll:async entries=>{for(const e of entries)cacheEntries.set(new URL(e,scope).href,new Response('cached'));},match:async request=>cacheEntries.get(typeof request==='string'?request:request.url),put:async(request,response)=>{const key=typeof request==='string'?request:request.url;puts.push(key);cacheEntries.set(key,response);}};

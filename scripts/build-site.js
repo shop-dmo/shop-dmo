@@ -8,9 +8,10 @@ const {minify}=require('terser');
 const CleanCSS=require('clean-css');
 const {minify:htmlMinify}=require('html-minifier-terser');
 const {minifyOptions,canonicalBytes}=require('./site-build-options');
+const images=require('./public-image-assets');
 const root=path.resolve(__dirname,'..');
 const ROLLBACK_REF='e4b9b33c0a4848e734cdba5c8b53c17f3839e6c6';
-const PUBLIC_FILES=['.nojekyll','index.html','app.js','app.css','config.js','sw.js','manifest.webmanifest','icon-192.png','icon-512.png','release.json'];
+const PUBLIC_FILES=['.nojekyll','index.html','app.js','app.css','config.js','sw.js','manifest.webmanifest','icon-192.png','icon-512.png','release.json',...Object.keys(images.files)];
 const hash=data=>crypto.createHash('sha256').update(data).digest('hex');
 const read=file=>canonicalBytes(file,fs.readFileSync(path.join(root,file)));
 async function build({rollback=false}={}){
@@ -24,7 +25,7 @@ async function build({rollback=false}={}){
       if(!PUBLIC_FILES.includes(file)||!fs.lstatSync(path.join(destination,file)).isFile()||fs.lstatSync(path.join(destination,file)).isSymbolicLink())throw Error('dist contains unexpected entries; preserve and inspect before building');
     }
   }
-  const files={};
+  const files={...images.files};
   const options=minifyOptions();
   for(const name of ['app.js','config.js']){
     // No property mangling, unsafe math, eval wrapping, or control-flow obfuscation.
@@ -35,13 +36,14 @@ async function build({rollback=false}={}){
   files['app.css']=css.styles+'\n';
   for(const name of ['manifest.webmanifest','icon-192.png','icon-512.png'])files[name]=readSite(name);
   const inputDigest=hash(Buffer.concat([Buffer.from(rollback?'rollback:'+ROLLBACK_REF:'candidate'),...['index.html','app.js','app.css','config.js','sw.js','manifest.webmanifest','icon-192.png','icon-512.png','scripts/build-site.js','scripts/site-build-options.js','package-lock.json'].map(readSite)])).slice(0,20);
-  const version='site-'+inputDigest;
+  const version='site-'+hash(Buffer.concat([Buffer.from(inputDigest),Buffer.from(JSON.stringify(images.productImages)),Buffer.from(JSON.stringify(images.sealImageMatches)),...Object.values(images.files)])).slice(0,20);
   let index=readSite('index.html').toString();
   for(const name of ['app.js','config.js','app.css'])index=index.replace(new RegExp(name.replace('.','\\.')+'\\?v=[^"\\s]+','g'),name+'?v='+version);
   files['index.html']=await htmlMinify(index,{collapseWhitespace:true,removeComments:true,removeRedundantAttributes:false,minifyJS:false,minifyCSS:false});
   let sw=read('sw.js').toString().replace(/const CACHE\s*=\s*'[^']+'/,`const CACHE='gun-shop-dmo-${version}'`).replace(/\?v=[^'"\s]+/g,'?v='+version);
   files['sw.js']=(await minify(sw,{...options,mangle:{toplevel:false}})).code+'\n';
   files['.nojekyll']='';
+  if(!rollback)files['config.js']+='Object.assign(window.DMO_CONFIG,'+JSON.stringify({productImages:images.productImages,sealImageMatches:images.sealImageMatches})+');\n';
   const commit=execFileSync('git',['rev-parse','HEAD'],{cwd:root,encoding:'utf8'}).trim();
   const dirty=!!execFileSync('git',['status','--porcelain','--untracked-files=no'],{cwd:root,encoding:'utf8'}).trim();
   const checksums=Object.fromEntries(Object.entries(files).map(([name,data])=>[name,{bytes:Buffer.byteLength(data),sha256:hash(data)}]));

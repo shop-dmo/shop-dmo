@@ -78,7 +78,7 @@ const state = {
   loginError: '',
   adminUser: JSON.parse(sessionStorage.getItem('dmo_admin_user') || 'null'),
   lastAdminActivity: Number(sessionStorage.getItem('dmo_admin_activity') || Date.now()),
-  adminView: 'dashboard',
+  adminView: cfg.simpleAdmin ? 'catalog' : 'dashboard',
   editRecord: null,
   wikiGallery: null,
   wikiSearch: '',
@@ -571,12 +571,15 @@ function productMeta(product) {
 
 function productFallbackIcon(product){return product.kind==='SEAL'?'🦖':product.kind==='SERVICE'?'⚔️':product.kind==='TMONEY'?'💰':'🎒';}
 function productImageMarkup(product,className='product-img'){
+  const exactMatch=cfg.sealImageMatches?.[product.id];
+  const source=(!product.imageUrl&&product.kind==='SEAL'&&exactMatch?.name===product.name?exactMatch.path:null)||cfg.productImages?.[product.imageUrl]||product.imageUrl;
   const fallback=`<span class="image-fallback" aria-hidden="true">${productFallbackIcon(product)}</span>`;
-  return product.imageUrl?`<span class="product-image-frame">${fallback}<img class="${className}" src="${html(product.imageUrl)}" alt="${html(product.name)}" loading="lazy" decoding="async" fetchpriority="low" onerror="this.hidden=true;this.parentElement.classList.add('is-broken')"></span>`:`<span class="product-image-frame is-empty">${fallback}</span>`;
+  return source?`<span class="product-image-frame">${fallback}<img class="${className}" src="${html(source)}" alt="${html(product.name)}" loading="lazy" decoding="async" fetchpriority="low" onerror="this.hidden=true;this.parentElement.classList.add('is-broken')"></span>`:`<span class="product-image-frame is-empty">${fallback}</span>`;
 }
 
 function productCard(product) {
   const image=productImageMarkup(product);
+  const selectedQuantity=state.cart.find(entry=>entry.id===product.id)?.quantity||0;
   const description = product.description ? `<div class="product-description">${html(product.description)}</div>` : '';
   const categoryText=product.kind==='SEAL'?`${html(product.category)} • ${html(sectionLabel(product.section))}`:html(subcategoryLabel(product.kind,product.serviceCategory||product.itemCategory)|| (product.kind==='TMONEY'?'เงิน T':'บริการ'));
   return `<article class="product-card visual-product-card">
@@ -592,8 +595,9 @@ function productCard(product) {
     </div>
     <div class="product-actions">
       <input class="qty-input" type="number" min="1" max="${productMaxQty(product)}" step="1" value="1" data-qty="${html(product.id)}" aria-label="${product.kind==='TMONEY'?'จำนวน T':'จำนวนสินค้า'}" ${canBuy(product) ? '' : 'disabled'}>
-      <button class="btn primary small" data-add="${html(product.id)}" ${canBuy(product) ? '' : 'disabled'}>+ เพิ่ม</button>
+      <button class="btn ${selectedQuantity?'success':'primary'} small" data-add="${html(product.id)}" ${canBuy(product) ? '' : 'disabled'}>${selectedQuantity?'✓ เพิ่มอีก':'+ เพิ่ม'}</button>
     </div>
+    ${selectedQuantity?`<div class="product-selection-count" role="status">✓ ในตะกร้า ${money(selectedQuantity)} ${html(saleUnit(product))}</div>`:''}
   </article>`;
 }
 
@@ -719,6 +723,7 @@ function addToCart(id, quantity) {
   if (existing) existing.quantity = nextQuantity;
   else state.cart.push(cartProductSnapshot(product,quantity));
   renderPreservingScroll();
+  toast(`เพิ่ม ${product.name} ${money(quantity)} ${saleUnit(product)} แล้ว • ในตะกร้ารวม ${money(nextQuantity)} ${saleUnit(product)}`);
 }
 
 function cartProductSnapshot(product,quantity){return{id:product.id,name:product.name,price:Number(product.price)||0,unit:saleUnit(product),kind:product.kind,category:product.category||'',section:product.section||'',packSize:Number(product.packSize)||0,quantity};}
@@ -778,7 +783,7 @@ function adminPage() {
   if (!state.adminToken) return `<section class="panel login-box"><h2 class="panel-title">เข้าสู่ระบบร้าน</h2><p class="product-meta">ข้อมูลหลังบ้านทั้งหมดอยู่ภายในหน้านี้</p><div class="stack"><input id="adminId" placeholder="ไอดี" aria-label="ไอดี" autocomplete="username" value="${html(state.loginId)}" ${state.loginSubmitting?'disabled':''}><input id="adminPassword" type="password" placeholder="รหัสผ่าน" aria-label="รหัสผ่าน" autocomplete="current-password" ${state.loginSubmitting?'disabled':''}><button class="btn primary" id="loginBtn" ${state.loginSubmitting?'disabled':''}>${state.loginSubmitting?'<span class="loading"></span> กำลังตรวจสอบบัญชี...':'เข้าสู่ระบบ'}</button>${state.loginSubmitting?'<div class="product-meta" role="status">รับคำขอแล้ว กรุณารอสักครู่ ไม่ต้องกดซ้ำ</div>':''}${state.loginError?`<div class="product-meta" role="alert">${html(state.loginError)}</div>`:''}<button class="btn" id="backShopBtn" ${state.loginSubmitting?'disabled':''}>← กลับหน้าร้าน</button></div></section>`;
   if (!state.adminData) return `<section class="panel empty"><span class="loading"></span> เข้าสู่ระบบสำเร็จ กำลังโหลดข้อมูลหลังร้าน...</section>`;
   const views = [['dashboard', '📊 ภาพรวม'], ['catalog', '📦 สินค้า'], ['categories', '🗂️ หมวดย่อย'], ['images', '🖼️ จัดการรูป'], ['inventory', '🏬 สต๊อก'], ['analytics', '📈 วิเคราะห์'], ['reports', '📤 รายงาน'], ['orders', '🧾 ออเดอร์'], ['marketing', '📣 สร้างโพสต์'], ['facebookBump', '📣 ดันโพสต์ Facebook'], ['customers', '👥 CRM ลูกค้า'], ['promotions', '🎁 โปรโมชั่น'], ['wiki', '📚 DMO Wiki'], ['trash', '🗑️ ถังขยะ'], ['calculator', '🧮 คำนวณ'], ['settings', '⚙️ ตั้งค่า'], ['security', '🛡️ ความปลอดภัย'], ['integrity', '🧪 ตรวจข้อมูล'], ['automation', '🤖 Automation'], ['logs', '🕘 ประวัติ']];
-  return `<div class="admin-toolbar"><div class="chip-row">${views.map(([value, label]) => `<button class="filter-chip ${state.adminView === value ? 'active' : ''}" data-admin-view="${value}">${label}</button>`).join('')}</div><div><span class="badge green">${html((state.adminUser&&state.adminUser.role)||'ADMIN')}</span> <button class="btn" id="backShopBtn">หน้าร้าน</button> <button class="btn danger" id="logoutBtn">ออกจากระบบ</button></div></div>${adminContent()}${state.editRecord !== null ? dynamicEditModalMarkup() : ''}${state.wikiGallery ? standardWikiModalMarkup() : ''}`;
+  return `<div class="admin-toolbar"><div class="chip-row">${(cfg.simpleAdmin?views.filter(([value])=>['catalog','categories','images','inventory','promotions','settings','security','trash'].includes(value)):views).map(([value, label]) => `<button class="filter-chip ${state.adminView === value ? 'active' : ''}" data-admin-view="${value}">${label}</button>`).join('')}</div><div><span class="badge green">${html((state.adminUser&&state.adminUser.role)||'ADMIN')}</span> <button class="btn" id="backShopBtn">หน้าร้าน</button> <button class="btn danger" id="logoutBtn">ออกจากระบบ</button></div></div>${adminContent()}${state.editRecord !== null ? dynamicEditModalMarkup() : ''}${state.wikiGallery ? standardWikiModalMarkup() : ''}`;
 }
 
 function adminContent() {

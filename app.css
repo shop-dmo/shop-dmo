@@ -190,3 +190,4 @@ body{background:var(--bg);background:radial-gradient(circle at 10% 0,color-mix(i
 .visual-product-card .product-details .product-description{display:block;color:var(--text)}
 @media(max-width:580px){.products{grid-template-columns:repeat(2,minmax(0,1fr));max-height:none;overflow:visible;padding-right:0}.products .visual-product-card{padding:10px;gap:8px}.visual-product-card .image-wrap{min-height:150px}.visual-product-card .product-image-frame{height:150px}.visual-product-card .product-name{font-size:16px}.visual-product-card .product-price{font-size:16px}.visual-product-card .product-actions{flex-wrap:wrap}.visual-product-card .qty-input{width:100%}.visual-product-card .product-actions .btn{width:100%}}
 @media(max-width:350px){.products{grid-template-columns:1fr}}
+.product-selection-count { padding: 0 14px 12px; color: #59e6ba; font-size: 14px; font-weight: 700; }

@@ -19,6 +19,9 @@ const types={'.html':'text/html;charset=utf-8','.js':'text/javascript;charset=ut
 const shellFiles=new Set(['index.html','app.js','app.css','config.js','sw.js','manifest.webmanifest','icon-192.png','icon-512.png','release.json','.nojekyll']);
 // Fixture-only request counts; never record bodies, credentials, or tokens.
 const requests={};
+const imageAssets=require('../scripts/public-image-assets');
+Object.keys(imageAssets.files).forEach(name=>shellFiles.add(name));
+types['.jpg']='image/jpeg';types['.webp']='image/webp';types['.gif']='image/gif';
 function countRequest(key){requests[key]=(requests[key]||0)+1;}
 const subcategories=[
   {id:'SEAL-NORMAL',kind:'SEAL',value:'NORMAL',label:'ปกติ',sortOrder:10,enabled:true},
@@ -48,7 +51,7 @@ http.createServer((req,res)=>{
     if(req.method==='GET'){countRequest('publicCatalog');return sendJson(res,publicData);}
     let body='';req.on('data',chunk=>body+=chunk);req.on('end',()=>{let payload={};try{payload=JSON.parse(body||'{}');}catch(error){}const knownActions=['login','getAdminData','logout','saveSettings'];const knownScopes=['dashboard','catalog','images','inventory','calculator','categories','settings','orders','customers','promotions','analytics','reports','security','integrity','automation','logs','trash','wiki'];countRequest(knownActions.includes(payload.action)?payload.action+(payload.action==='getAdminData'?':'+(knownScopes.includes(payload.scope)?payload.scope:'other'):''):'other');if(payload.action==='login')return sendJson(res,{ok:true,token:'LOCAL-SMOKE-TOKEN',user:{userId:'LOCAL-SMOKE',displayName:'Local smoke test',role:'OWNER',status:'ACTIVE'}});if(payload.action==='getAdminData'){const reply=()=>sendJson(res,adminData(String(payload.scope||'dashboard')));return adminDelayMs?setTimeout(reply,adminDelayMs):reply();}if(payload.action==='logout'||payload.action==='saveSettings')return sendJson(res,{ok:true});sendJson(res,{ok:false,error:'LOCAL_SMOKE_READ_ONLY'});});return;
   }
-  if(requestPath==='/config.js'){res.writeHead(200,{'Content-Type':'text/javascript;charset=utf-8','Cache-Control':'no-store'});return res.end(`window.DMO_CONFIG=${JSON.stringify({sheetsUrl:`http://127.0.0.1:${port}${basePath}/api`,refreshMs:600000,appVersion:'LOCAL-SMOKE'})};`);}
+  if(requestPath==='/config.js'){res.writeHead(200,{'Content-Type':'text/javascript;charset=utf-8','Cache-Control':'no-store'});return res.end(`window.DMO_CONFIG=${JSON.stringify({sheetsUrl:`http://127.0.0.1:${port}${basePath}/api`,simpleAdmin:true,productImages:imageAssets.productImages,sealImageMatches:imageAssets.sealImageMatches,refreshMs:600000,appVersion:'LOCAL-SMOKE'})};`);}
   const relativeFile=requestPath==='/'?'index.html':requestPath.slice(1);
   // Readable-source previews need fresh asset URLs; do not change built PWA QA.
   if(relativeFile==='index.html'&&fixtureBuild==='0'){
