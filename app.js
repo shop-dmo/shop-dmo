@@ -457,9 +457,9 @@ function customerNav() {
     ['SERVICE', '⚔️ บริการ'],
     ['TMONEY', '💰 เงิน T'],
   ];
-  return `<nav class="nav customer-nav">
-    ${types.map(([value, label]) => `<button class="tab ${state.catalogType === value && !state.wishlistOnly ? 'active' : ''}" data-type="${value}">${label}</button>`).join('')}
-    <button class="tab ${state.wishlistOnly ? 'active' : ''}" id="favoritesBtn">❤️ รายการโปรด (${state.favoriteKeys.length})</button>
+  return `<nav class="nav customer-nav" aria-label="หมวดสินค้า">
+    ${types.map(([value, label]) => `<button class="tab ${state.catalogType === value && !state.wishlistOnly ? 'active' : ''}" data-type="${value}" aria-pressed="${state.catalogType === value && !state.wishlistOnly}"><span class="category-nav-icon" aria-hidden="true">${label.split(' ')[0]}</span><span>${label.slice(label.indexOf(' ')+1)}</span></button>`).join('')}
+    <button class="tab ${state.wishlistOnly ? 'active' : ''}" id="favoritesBtn" aria-pressed="${state.wishlistOnly}"><span class="category-nav-icon" aria-hidden="true">❤️</span><span>รายการโปรด <span class="category-nav-count">${state.favoriteKeys.length}</span></span></button>
   </nav>`;
 }
 
@@ -601,6 +601,7 @@ function sectionLabel(section) {
 }
 
 function saleUnit(product){return String(product.unit||(product.kind==='SEAL'?'ชุด':product.kind==='SERVICE'?'ครั้ง':product.kind==='TMONEY'?'T':'ชิ้น'));}
+function sealCardPrice(product){return ['SUSA','BASE_HARD'].includes(String(product.section))&&saleUnit(product)==='ใบ'?`${Number(product.price).toLocaleString('th-TH',{maximumFractionDigits:6})} บาท/ใบ`:`${money(sealPackPrice(product))} บาท`;}
 function formatProductPrice(product){const unit=saleUnit(product),pack=Number(product.packSize)||1000,price=product.kind==='SEAL'&&unit==='ใบ'?Number(product.price).toLocaleString('th-TH',{maximumFractionDigits:6}):money(product.price);return `${price} บาท/${html(unit)}${unit==='ชุด'?` (${money(pack)} ใบ)`:product.kind==='SEAL'&&pack>1?` · ${money(sealPackPrice(product))} บาท/${money(pack)} ใบ`:''}`;}
 function sealSaleNote(product){if(product.kind!=='SEAL')return'';return saleUnit(product)==='ชุด'?`1 ชุด = ${money(product.packSize||1000)} ใบ`:'ราคาต่อ 1 ใบ';}
 
@@ -629,7 +630,7 @@ function productCard(product) {
     <div class="product-main">
       <div class="product-name">${html(product.name)}</div>
       <div class="product-meta">${categoryText}${product.kind==='SEAL'?` · <span class="seal-sale-mode ${saleUnit(product)==='ใบ'?'split':'pack'}">${saleUnit(product)==='ใบ'?'ขายแยกได้':'ไม่ขายแยก'}</span>`:''}</div>
-      <div class="product-price">${product.kind==='SEAL'?`${money(sealPackPrice(product))} บาท`:formatProductPrice(product)}</div>
+      <div class="product-price">${product.kind==='SEAL'?sealCardPrice(product):formatProductPrice(product)}</div>
       ${product.tags ? `<div class="tag-line">${String(product.tags).split('|').filter(Boolean).slice(0,4).map((tag)=>`<span class="mini-tag">${html(tag)}</span>`).join('')}</div>` : ''}
       ${description ? `<details class="product-details"><summary>รายละเอียด</summary>${description}</details>` : ''}
       <div class="product-status">${stockText(product)}</div>
@@ -639,7 +640,7 @@ function productCard(product) {
       <input class="qty-input" type="number" min="1" max="${productMaxQty(product)}" step="1" value="1" data-qty="${html(product.id)}" aria-label="${product.kind==='TMONEY'?'จำนวน T':'จำนวนสินค้า'}" ${canBuy(product) ? '' : 'disabled'}>
       <button class="btn ${selectedQuantity?'success':'primary'} small" data-add="${html(product.id)}" ${canBuy(product) ? '' : 'disabled'}>${selectedQuantity?'✓ เพิ่มอีก':'+ เพิ่ม'}</button>
     </div>
-    ${product.kind==='SEAL'&&saleUnit(product)==='ใบ'?`<button class="btn small seal-add-thousand" data-add-thousand="${html(product.id)}" ${canBuy(product)&&productMaxQty(product)-selectedQuantity>=1000?'':'disabled'}>+ 1,000 ใบ</button>`:''}
+    ${product.kind==='SEAL'&&saleUnit(product)==='ใบ'&&!['SUSA','BASE_HARD'].includes(String(product.section))?`<button class="btn small seal-add-thousand" data-add-thousand="${html(product.id)}" ${canBuy(product)&&productMaxQty(product)-selectedQuantity>=1000?'':'disabled'}>+ 1,000 ใบ</button>`:''}
     ${selectedQuantity?`<div class="product-selection-count" role="status">✓ ในตะกร้า ${money(selectedQuantity)} ${html(saleUnit(product))}</div>`:''}
   </article>`;
 }
@@ -763,7 +764,7 @@ function cartPanel() {
       <button class="btn success copy-order-primary" id="copyOnlyBtn" ${state.cart.length ? '' : 'disabled'}>📋 คัดลอกรายการเพื่อส่งให้ร้าน</button>
       ${state.copyNotice?`<div class="copy-success" role="status">${html(state.copyNotice)}</div>`:''}
       ${messengerContact?`<a class="btn primary facebook-btn" href="${html(messengerContact)}" target="_blank" rel="noopener noreferrer">💬 เปิด Messenger เพื่อวางรายการ</a>`:'<button class="btn primary" disabled>💬 Messenger — รอตั้งค่าลิงก์ร้าน</button>'}
-      ${facebookContact?`<a class="btn facebook-btn" href="${html(facebookContact)}" target="_blank" rel="noopener noreferrer">👤 เปิดโปรไฟล์ Facebook ร้าน</a>`:'<button class="btn" disabled>👤 โปรไฟล์ Facebook — รอตั้งค่าลิงก์ร้าน</button>'}
+      ${facebookContact?`<a class="btn facebook-btn" href="${html(facebookContact)}" target="_blank" rel="noopener noreferrer">📘 เปิดโปรไฟล์ Facebook ร้าน</a>`:'<button class="btn facebook-btn" disabled>📘 โปรไฟล์ Facebook — รอตั้งค่าลิงก์ร้าน</button>'}
       <small class="product-meta">คัดลอกรายการ แล้ววางในแชตและกดส่งด้วยตัวเอง • เว็บไซต์ไม่บันทึกออเดอร์เข้าหลังร้าน</small>
       <button class="btn" id="favoriteCartBtn" ${state.cart.length ? '' : 'disabled'}>❤️ บันทึกทั้งหมดเป็นรายการโปรด</button><button class="btn danger" id="clearCartBtn" ${state.cart.length ? '' : 'disabled'}>ล้างรายการ</button>
     </div>

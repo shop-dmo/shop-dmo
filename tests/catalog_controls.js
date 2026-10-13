@@ -5,6 +5,13 @@ const storage={getItem:()=>null,setItem(){},removeItem(){}};
 const c={console,URL,URLSearchParams,setTimeout,clearTimeout,location:{hash:''},localStorage:storage,sessionStorage:storage,navigator:{},window:{DMO_CONFIG:{},addEventListener(){}},document:{getElementById:()=>null,querySelector:()=>null,querySelectorAll:()=>[]}};
 vm.createContext(c);vm.runInContext(original.slice(0,original.indexOf('function touchAdminActivity'))+'\nglobalThis.subject={state,filteredProducts,productImageMarkup};',c);
 const {state,filteredProducts}=c.subject;
+vm.runInContext('globalThis.splitPriceSubject={sealCardPrice};',c);
+for(const section of ['SUSA','BASE_HARD']){
+  assert.equal(c.splitPriceSubject.sealCardPrice({kind:'SEAL',section,unit:'ใบ',price:1.5,packSize:1000,packPrice:1500,allowSplitSale:true}),'1.5 บาท/ใบ');
+  assert.equal(c.splitPriceSubject.sealCardPrice({kind:'SEAL',section,unit:'ชุด',price:1500,packSize:1000,packPrice:1500,allowSplitSale:false}),'1,500 บาท');
+}
+assert.equal(c.splitPriceSubject.sealCardPrice({kind:'SEAL',section:'NORMAL',unit:'ใบ',price:.04,packSize:1000,packPrice:40,allowSplitSale:true}),'40 บาท');
+console.log('PASS SUSA/BASE_HARD leaf card price; NORMAL and non-split card prices unchanged');
 state.seals=[{id:'a',name:'A',kind:'SEAL',price:20,availableStock:3,status:'ACTIVE',sortOrder:1},{id:'b',name:'B',kind:'SEAL',price:10,availableStock:0,status:'ACTIVE',sortOrder:2},{id:'c',name:'C',kind:'SEAL',price:30,availableStock:'',status:'CHECK_STOCK',sortOrder:3},{id:'d',name:'D',kind:'SEAL',price:null,availableStock:2,status:'ACTIVE',sortOrder:4}];
 const ids=()=>Array.from(filteredProducts(),p=>p.id);
 assert.deepEqual(ids(),['a','b','c','d']);
@@ -22,6 +29,14 @@ for(const [id,row] of Object.entries(assets.sealImageMatches)){
 }
 console.log('PASS all exact-name seal images render; renamed records do not inherit a mismatched image');
 vm.runInContext('globalThis.feedback=[]; renderPreservingScroll=()=>{}; toast=message=>feedback.push(message); globalThis.cartSubject={productCard,addToCart};',c);
+for(const section of ['SUSA','BASE_HARD']){
+  const card=c.cartSubject.productCard({id:'leaf-test',name:'Leaf',kind:'SEAL',section,unit:'ใบ',price:.5,packPrice:500,packSize:1000,allowSplitSale:true,status:'ACTIVE',availableStock:1000});
+  assert(!card.includes('data-add-thousand'));
+  assert(card.includes('data-add="leaf-test"'));
+  assert(card.includes('0.5 บาท/ใบ'));
+}
+assert(c.cartSubject.productCard({id:'normal-test',name:'Normal',kind:'SEAL',section:'NORMAL',unit:'ใบ',price:.04,packPrice:40,packSize:1000,allowSplitSale:true,status:'ACTIVE',availableStock:1000}).includes('data-add-thousand'));
+console.log('PASS thousand-leaf shortcut excluded only for SUSA/BASE_HARD; manual add retained');
 state.cart=[];
 assert(!c.cartSubject.productCard(state.seals[0]).includes('product-selection-count'));
 c.cartSubject.addToCart('a',2);
