@@ -1,0 +1,12 @@
+'use strict';
+const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
+const c={console};vm.createContext(c);vm.runInContext(fs.readFileSync(require('node:path').join(__dirname,'../GoogleAppsScript.gs'),'utf8'),c);
+const headers=['name','id','imageUrl','price','unit','packSize','stock','reservedStock','lowStockAlert','stockUnit','allowSplitSale','category','section','status','customColumn','updatedAt'];
+const record={id:'FIXTURE',name:'Fixture',imageUrl:'https://example.invalid/image.png',price:40,unit:'ชุด',packSize:1000,stock:2000,reservedStock:0,lowStockAlert:0,stockUnit:'LEAF',allowSplitSale:'FALSE',category:'AT',section:'NORMAL',status:'ACTIVE',customColumn:'KEEP'};
+const data=[headers,headers.map(k=>record[k]??'')];
+c.sheet=()=>({getLastColumn:()=>headers.length,getDataRange:()=>({getValues:()=>data.map(r=>r.slice())}),getRange:(row,col,height=1,width=1)=>({getDisplayValues:()=>data.slice(row-1,row-1+height).map(r=>r.slice(col-1,col-1+width).map(String)),setValues:rows=>rows.forEach((r,i)=>r.forEach((v,j)=>data[row-1+i][col-1+j]=v))})});
+c.withLock=fn=>fn();c.sortCatalog=()=>{};c.log=()=>{};c.output=v=>v;
+c.upsert({id:'FIXTURE',kind:'SEAL',name:'Edited',category:'AT',price:40,unit:'ชุด',packSize:1000,stock:2000,reservedStock:0,lowStockAlert:0,stockUnit:'LEAF',allowSplitSale:'TRUE'},'FIXTURE');
+const saved=Object.fromEntries(headers.map((k,i)=>[k,data[1][i]]));
+assert.equal(saved.name,'Edited');assert.equal(saved.id,'FIXTURE');assert.equal(saved.imageUrl,record.imageUrl);assert.equal(saved.customColumn,'KEEP');assert.equal(saved.price,40);assert.equal(saved.stock,2000);assert.equal(saved.allowSplitSale,'TRUE');
+console.log('PASS reordered sheet headers map by name; existing image and unknown column preserved');

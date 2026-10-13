@@ -62,6 +62,7 @@ const state = {
   promotions: [],
   settings: {},
   cart: [],
+  cartSetGroups: [],
   customer: { tamer: '', server: 'ลิเวียมอน', contact: '' },
   updatedAt: '',
   loading: true,
@@ -424,8 +425,8 @@ async function loadData(showLoading = true) {
     const data=await apiGet(false);if(versionAtStart!==dataInvalidationVersion)return;
     let newerCache=false;try{const cached=JSON.parse(localStorage.getItem('dmo_public_cache')||'null');newerCache=String(cached?.dataVersion||'')===versionAtStart&&Number(cached?.startedAt||0)>startedAt;if(newerCache)restorePublicCache(false,true);}catch(error){}
     if(!newerCache){applyPublicData(data,false);state.publicLoadedAt=Date.now();markPublicRefreshGate(state.publicLoadedAt);try{localStorage.setItem('dmo_public_cache',JSON.stringify({savedAt:state.publicLoadedAt,startedAt,dataVersion:versionAtStart,data}));}catch(error){}}
-    state.loading=false;renderPublicRefresh();
-  }catch(error){if(versionAtStart!==dataInvalidationVersion)return;const cacheAvailable=restored||restorePublicCache();state.loading=false;renderPublicRefresh();if(state.page!=='admin')toast(cacheAvailable?'ออฟไลน์: ใช้ข้อมูลล่าสุดที่บันทึกไว้':error.message);}finally{publicLoadPromise=null;}})();
+    state.loading=false;state.publicRefreshError=false;renderPublicRefresh();
+  }catch(error){if(versionAtStart!==dataInvalidationVersion)return;const cacheAvailable=restored||restorePublicCache();state.loading=false;state.publicRefreshError=true;renderPublicRefresh();if(state.page!=='admin')toast(cacheAvailable?'ออฟไลน์: ใช้ข้อมูลล่าสุดที่บันทึกไว้':error.message);}finally{publicLoadPromise=null;}})();
   return publicLoadPromise;
 }
 
@@ -451,6 +452,7 @@ async function autoRefreshPublic(){
 function customerNav() {
   const types = [
     ['SEAL', '🦖 ซีล'],
+    ['SEAL_SET', '📦 เซ็ตซีล'],
     ['ITEM', '🎒 ไอเทม'],
     ['SERVICE', '⚔️ บริการ'],
     ['TMONEY', '💰 เงิน T'],
@@ -458,7 +460,6 @@ function customerNav() {
   return `<nav class="nav customer-nav">
     ${types.map(([value, label]) => `<button class="tab ${state.catalogType === value && !state.wishlistOnly ? 'active' : ''}" data-type="${value}">${label}</button>`).join('')}
     <button class="tab ${state.wishlistOnly ? 'active' : ''}" id="favoritesBtn">❤️ รายการโปรด (${state.favoriteKeys.length})</button>
-    <button class="btn" id="refreshBtn">🔄 โหลดล่าสุด</button>
   </nav>`;
 }
 
@@ -504,6 +505,7 @@ function render() {
       <div class="hero-actions"><div class="data-badge">${state.loading ? '<span class="loading"></span>' : (state.offline?'Offline Cache':'Google Sheets')}<br>${state.updatedAt ? new Date(state.updatedAt).toLocaleString('th-TH') : ''}</div><button class="icon-btn" id="themeToggleBtn" title="สลับธีม">${String(document.documentElement.dataset.theme).toUpperCase()==='LIGHT'?'🌙':'☀️'}</button>${state.installPrompt?'<button class="btn small" id="installPwaBtn">📲 ติดตั้ง</button>':''}</div>
     </section>
     ${adminMode ? '' : customerNav()}
+    ${adminMode?'':`<div class="catalog-refresh-bar"><span role="status" aria-live="polite">${state.manualRefreshing?'กำลังตรวจข้อมูลล่าสุด…':html(state.manualRefreshMessage||'อัปเดตราคาและสต๊อกจากร้าน')}</span><button class="btn small" id="refreshBtn" ${state.manualRefreshing?'disabled aria-busy="true"':''}>${state.manualRefreshing?'<span class="loading"></span> กำลังโหลด…':'🔄 โหลดล่าสุด'}</button></div>`}
     ${state.orderSuccess && !adminMode ? orderSuccessPanel() : ''}
     ${state.loading ? '<section class="panel empty"><span class="loading"></span> กำลังโหลดข้อมูล...</section>' : (adminMode ? adminPage() : shopPage())}
     ${adminMode ? '' : `<nav class="mobile-bottom-nav"><button data-mobile-nav="SEAL">🦖<span>ซีล</span></button><button data-mobile-nav="ITEM">🎒<span>ไอเทม</span></button><button data-mobile-nav="SERVICE">⚔️<span>บริการ</span></button><button data-mobile-nav="TMONEY">💰<span>เงิน T</span></button><button id="mobileCartBtn">🛒<span>ตะกร้า ${state.cart.reduce((s,x)=>s+Number(x.quantity||0),0)}</span></button></nav><footer class="site-footer"><span>${footerIdentity ? `${footerIdentity} • ` : ''}รูปภาพอ้างอิงจาก <a href="https://dmowiki.com/Seal_Master" target="_blank" rel="noopener">DMO Wiki</a></span><button class="admin-entry" id="adminEntry">🔒 ระบบหลังบ้าน</button></footer>`}
@@ -518,6 +520,44 @@ function catalog() {
   if (state.catalogType === 'SERVICE') return state.services;
   if (state.catalogType === 'TMONEY') return state.moneyT ? [state.moneyT] : [];
   return state.seals;
+}
+
+const SEAL_SET_CATEGORIES=['AT','HT','CT','HP','DS','DE','EV','BL'];
+function sealPackPrice(product){return Number(product.packPrice??(saleUnit(product)==='ใบ'?Number(product.price)*Math.max(1,Number(product.packSize)||1):product.price));}
+function sealQuantityPerSet(product,multiplier){return multiplier*(saleUnit(product)==='ใบ'?Math.max(1,Number(product.packSize)||1):1);}
+function sealSetOffers(){
+  const eligible=state.seals.filter(p=>p.section==='NORMAL'&&Number(p.packSize)===1000&&Number(p.price)>0&&canBuy(p)&&availableStock(p)!==''&&Number(availableStock(p))>0).sort((a,b)=>SEAL_SET_CATEGORIES.indexOf(a.category)-SEAL_SET_CATEGORIES.indexOf(b.category)||String(a.name).localeCompare(String(b.name),'th'));
+  const limits={AT:11,HT:9,CT:9,HP:13,DS:13,DE:14,EV:9,BL:6};
+  const selected=SEAL_SET_CATEGORIES.flatMap(cat=>eligible.filter(p=>p.category===cat).sort((a,b)=>sealPackPrice(a)-sealPackPrice(b)||String(a.name).localeCompare(String(b.name),'th')).slice(0,limits[cat]));
+  let configured=null;try{const raw=JSON.parse(state.settings.sealSetsJson||'null');if(Array.isArray(raw))configured=raw;}catch(ignore){}
+  if(configured)return configured.filter(row=>row.enabled!==false).map(row=>{
+    const members=(row.memberIds||[]).map(id=>state.seals.find(p=>p.id===id)).filter(Boolean),multiplier=Number(row.multiplier),valid=members.length===(row.memberIds||[]).length&&members.length>0;
+    return{id:row.id,category:row.category,multiplier,members,name:row.name, imageUrl:safeExternalUrl(row.imageUrl||''),price:roundMoney(members.reduce((sum,p)=>sum+sealPackPrice(p)*multiplier,0)),available:valid&&members.every(p=>p.section==='NORMAL'&&Number(p.packSize)===1000&&Number(p.price)>0&&canBuy(p)&&availableStock(p)!==''&&Number(availableStock(p))>=sealQuantityPerSet(p,multiplier))};
+  });
+  return [...SEAL_SET_CATEGORIES,'ALL'].flatMap(category=>{
+    const members=selected.filter(p=>category==='ALL'||p.category===category);
+    if(!members.length)return[];
+    return [1,3].map(multiplier=>({id:`seal-set-${category}-${multiplier}`,category,multiplier,members,name:`เซ็ตซีล ${category==='ALL'?'ครบทุกสาย':category} ${multiplier===1?'เริ่มต้น':'ชุดใหญ่'}`,price:roundMoney(members.reduce((sum,p)=>sum+sealPackPrice(p)*multiplier,0)),available:members.every(p=>Number(availableStock(p))>=sealQuantityPerSet(p,multiplier))}));
+  });
+}
+function sealSetCard(offer){
+  const discount=discountPercent(state.settings.categoryDiscountSealPercent),net=roundMoney(offer.price*(1-discount/100));
+  return `<article class="seal-set-card" data-seal-line="${html(offer.category)}">${offer.imageUrl?`<img class="seal-set-image" src="${html(offer.imageUrl)}" alt="${html(offer.name)}" loading="lazy">`:''}<div class="seal-set-heading"><span class="badge">${html(offer.category==='ALL'?'ครบทุกสาย':offer.category)}</span><h3>${html(offer.name)}</h3></div><p>${offer.members.length} ซีล · ตัวละ ${money(offer.multiplier*1000)} ใบ</p><div class="product-price">${money(offer.price)} บาท/เซ็ต</div>${discount?`<small>หลังส่วนลดซีล ${money(discount)}% ประมาณ ${money(net)} บาท</small>`:''}<details><summary>ดูรายชื่อซีลและจำนวนที่จะได้รับ (${offer.members.length})</summary><ol>${offer.members.map(p=>`<li><b>${html(p.name)}</b><span>${money(offer.multiplier*1000)} ใบ · ${money(sealPackPrice(p)*offer.multiplier)} บาท</span></li>`).join('')}</ol></details><div class="product-actions"><input type="number" class="qty-input" min="1" step="1" value="1" data-set-qty="${html(offer.id)}" aria-label="จำนวนเซ็ต ${html(offer.name)}"><button class="btn primary" data-add-set="${html(offer.id)}" ${offer.available?'':'disabled'}>${offer.available?'+ เพิ่มทั้งเซ็ต':'สต๊อกบางตัวไม่พอ'}</button></div></article>`;
+}
+function sealSetsPage(){
+  const offers=sealSetOffers(),groups=[...SEAL_SET_CATEGORIES,'ALL'].filter(cat=>state.category==='ALL'||cat===state.category),query=state.search.trim().toLocaleLowerCase('th');
+  return `<div class="grid-main"><section class="panel"><h2 class="panel-title">📦 เซ็ตซีลของร้าน</h2><p class="product-meta">เซ็ตเริ่มต้น ตัวละ 1,000 ใบ · เซ็ตชุดใหญ่ ตัวละ 3,000 ใบ<br>คัดซีลเริ่มต้นราคาน้อยไปมากในแต่ละสาย จากซีลปกติชุด 1,000 ใบที่มีสต๊อกยืนยัน ราคาคิดตามร้าน ณ ตอนโหลดข้อมูล กรุณาดูรายชื่อก่อนเพิ่ม</p><div class="chip-row">${['ALL',...SEAL_SET_CATEGORIES].map(cat=>`<button class="filter-chip ${state.category===cat?'active':''}" data-seal-line="${cat}" data-cat="${cat}">${cat==='ALL'?'ทุกสาย':cat}</button>`).join('')}</div><input class="search" id="searchInput" placeholder="ค้นหาชื่อเซ็ตหรือซีลในเซ็ต" value="${html(state.search)}">${groups.map(cat=>{const rows=offers.filter(o=>o.category===cat&&(!query||`${o.name} ${o.members.map(p=>p.name).join(' ')}`.toLocaleLowerCase('th').includes(query)));return rows.length?`<section class="seal-set-group" data-seal-line="${cat}"><h3>${cat==='ALL'?'เซ็ตครบทุกสาย':`ซีลสาย ${cat}`}</h3><div class="seal-set-grid">${rows.map(sealSetCard).join('')}</div></section>`:'';}).join('')||'<div class="empty">ยังไม่มีซีลปกติชุด 1,000 ใบที่มีสต๊อกยืนยันในสายนี้</div>'}</section>${cartPanel()}</div>`;
+}
+function addSealSet(id,quantity){
+  const offer=sealSetOffers().find(o=>o.id===id);if(!offer)return;
+  if(!offer.available)return toast('เซ็ตนี้ยังเพิ่มไม่ได้ กรุณาตรวจสต๊อกและรายชื่อ');
+  const activeKeys=new Set(compactCartEntries().filter(p=>p.groupKey).map(p=>p.groupKey));state.cartSetGroups=state.cartSetGroups.filter(g=>activeKeys.has(g.key));
+  const count=Math.max(1,Math.floor(Number(quantity)||1));if(!Number.isSafeInteger(count))return toast('จำนวนเซ็ตไม่ถูกต้อง');
+  for(const p of offer.members){const existing=state.cart.find(x=>x.id===p.id&&x.kind==='SEAL');if(existing&&existing.unit!==saleUnit(p))return toast('หน่วยขายเปลี่ยนแล้ว กรุณาล้างรายการและเลือกใหม่');if(Number(availableStock(p))<(existing?.quantity||0)+sealQuantityPerSet(p,offer.multiplier)*count)return toast(`ยังเพิ่มเซ็ตไม่ได้: ${p.name} มีสต๊อกไม่พอ`);}
+  offer.members.forEach(p=>{const quantity=sealQuantityPerSet(p,offer.multiplier)*count,existing=state.cart.find(x=>x.id===p.id&&x.kind==='SEAL');if(existing)existing.quantity+=quantity;else state.cart.push(cartProductSnapshot(p,quantity));});
+  const signature=JSON.stringify(offer.members.map(p=>p.id)),group=state.cartSetGroups.find(g=>g.id===offer.id&&g.signature===signature&&g.multiplier===offer.multiplier);
+  if(group)group.quantity+=count;else state.cartSetGroups.push({id:offer.id,key:`set-${Date.now()}-${state.cartSetGroups.length}`,name:offer.name,signature,multiplier:offer.multiplier,memberIds:offer.members.map(p=>p.id),memberQuantities:Object.fromEntries(offer.members.map(p=>[p.id,sealQuantityPerSet(p,offer.multiplier)])),quantity:count});
+  state.copyNotice='';renderPreservingScroll();toast(`เพิ่ม ${offer.name} ${money(count)} เซ็ตแล้ว`);
 }
 
 function filteredProducts() {
@@ -548,10 +588,12 @@ function filteredProducts() {
 function stockText(product) {
   if (product.status === 'CHECK_STOCK') return '⚠️ ต้องตรวจสอบสต๊อก';
   const available = availableStock(product);
+  if(product.kind==='SEAL'&&saleUnit(product)==='ชุด'&&available===0&&Number(product.availableLeaves)>0)return `เหลือ ${money(product.availableLeaves)} ใบ • ไม่ครบชุด`;
   if (product.status === 'OUT_OF_STOCK' || (available !== '' && available <= 0)) return '❌ หมด';
   if (product.status === 'CHECK_STOCK' || available === '') return '⚠️ ต้องตรวจสอบสต๊อก';
   const low = product.lowStockAlert !== undefined && Number(product.lowStockAlert || 0) > 0 && available <= Number(product.lowStockAlert || 0);
-  return `${low ? '⚠️ ใกล้หมด • ' : ''}เหลือ ${money(available)} ${html(product.unit || '')}`;
+  const leaves=product.kind==='SEAL'?(product.availableLeaves??Number(available)*(product.stockUnit==='LEAF'?1:saleUnit(product)==='ชุด'?Math.max(1,Number(product.packSize)||1):1)):available;
+  return `${low ? '⚠️ ใกล้หมด • ' : ''}เหลือ ${money(leaves)} ${product.kind==='SEAL'?'ใบ':html(product.unit || '')}`;
 }
 
 function sectionLabel(section) {
@@ -559,7 +601,7 @@ function sectionLabel(section) {
 }
 
 function saleUnit(product){return String(product.unit||(product.kind==='SEAL'?'ชุด':product.kind==='SERVICE'?'ครั้ง':product.kind==='TMONEY'?'T':'ชิ้น'));}
-function formatProductPrice(product){const unit=saleUnit(product),pack=Number(product.packSize)||1000;return `${money(product.price)} บาท/${html(unit)}${unit==='ชุด'?` (${money(pack)} ใบ)`:''}`;}
+function formatProductPrice(product){const unit=saleUnit(product),pack=Number(product.packSize)||1000,price=product.kind==='SEAL'&&unit==='ใบ'?Number(product.price).toLocaleString('th-TH',{maximumFractionDigits:6}):money(product.price);return `${price} บาท/${html(unit)}${unit==='ชุด'?` (${money(pack)} ใบ)`:product.kind==='SEAL'&&pack>1?` · ${money(sealPackPrice(product))} บาท/${money(pack)} ใบ`:''}`;}
 function sealSaleNote(product){if(product.kind!=='SEAL')return'';return saleUnit(product)==='ชุด'?`1 ชุด = ${money(product.packSize||1000)} ใบ`:'ราคาต่อ 1 ใบ';}
 
 function productMeta(product) {
@@ -582,12 +624,12 @@ function productCard(product) {
   const selectedQuantity=state.cart.find(entry=>entry.id===product.id)?.quantity||0;
   const description = product.description ? `<div class="product-description">${html(product.description)}</div>` : '';
   const categoryText=product.kind==='SEAL'?`${html(product.category)} • ${html(sectionLabel(product.section))}`:html(subcategoryLabel(product.kind,product.serviceCategory||product.itemCategory)|| (product.kind==='TMONEY'?'เงิน T':'บริการ'));
-  return `<article class="product-card visual-product-card">
+  return `<article class="product-card visual-product-card" ${product.kind==='SEAL'&&SEAL_SET_CATEGORIES.includes(product.category)?`data-seal-line="${html(product.category)}"`:''}>
     <div class="image-wrap">${image}<button class="favorite-btn ${isFavorite(product) ? 'active' : ''}" data-favorite="${html(productKey(product))}" aria-label="รายการโปรด">${isFavorite(product) ? '♥' : '♡'}</button></div>
     <div class="product-main">
       <div class="product-name">${html(product.name)}</div>
-      <div class="product-meta">${categoryText}</div>
-      <div class="product-price">${formatProductPrice(product)}</div>
+      <div class="product-meta">${categoryText}${product.kind==='SEAL'?` · <span class="seal-sale-mode ${saleUnit(product)==='ใบ'?'split':'pack'}">${saleUnit(product)==='ใบ'?'ขายแยกได้':'ไม่ขายแยก'}</span>`:''}</div>
+      <div class="product-price">${product.kind==='SEAL'?`${money(sealPackPrice(product))} บาท`:formatProductPrice(product)}</div>
       ${product.tags ? `<div class="tag-line">${String(product.tags).split('|').filter(Boolean).slice(0,4).map((tag)=>`<span class="mini-tag">${html(tag)}</span>`).join('')}</div>` : ''}
       ${description ? `<details class="product-details"><summary>รายละเอียด</summary>${description}</details>` : ''}
       <div class="product-status">${stockText(product)}</div>
@@ -597,11 +639,13 @@ function productCard(product) {
       <input class="qty-input" type="number" min="1" max="${productMaxQty(product)}" step="1" value="1" data-qty="${html(product.id)}" aria-label="${product.kind==='TMONEY'?'จำนวน T':'จำนวนสินค้า'}" ${canBuy(product) ? '' : 'disabled'}>
       <button class="btn ${selectedQuantity?'success':'primary'} small" data-add="${html(product.id)}" ${canBuy(product) ? '' : 'disabled'}>${selectedQuantity?'✓ เพิ่มอีก':'+ เพิ่ม'}</button>
     </div>
+    ${product.kind==='SEAL'&&saleUnit(product)==='ใบ'?`<button class="btn small seal-add-thousand" data-add-thousand="${html(product.id)}" ${canBuy(product)&&productMaxQty(product)-selectedQuantity>=1000?'':'disabled'}>+ 1,000 ใบ</button>`:''}
     ${selectedQuantity?`<div class="product-selection-count" role="status">✓ ในตะกร้า ${money(selectedQuantity)} ${html(saleUnit(product))}</div>`:''}
   </article>`;
 }
 
 function shopPage() {
+  if(state.catalogType==='SEAL_SET'&&!state.wishlistOnly)return sealSetsPage();
   const products = filteredProducts();
   const visibleProducts=products.slice(0,state.catalogVisible);
   const suggestions = state.search && !state.selectedSearchKey ? searchSuggestions() : [];
@@ -611,16 +655,18 @@ function shopPage() {
   return `<div class="grid-main">
     <section class="panel">
       ${announcement?`<div class="site-message announcement">📢 ${html(announcement)}</div>`:''}${promotionText?`<div class="site-message promotion">🎁 ${html(promotionText)}</div>`:''}${importantNotice?`<div class="site-message important">⚠️ ${html(importantNotice)}</div>`:''}
+      ${state.catalogType==='SEAL'&&!state.wishlistOnly?`<div class="seal-budget-help"><h2>${html(configuredSettingText(state.settings,'sealBudgetTitle','🌟 มือใหม่? ให้ร้านจัดซีลตามงบ'))}</h2><p>${html(configuredSettingText(state.settings,'sealBudgetDescription','ไม่รู้จะเลือกตัวไหน บอกงบแล้วให้ร้านช่วยแนะนำได้เลย'))}</p><div class="seal-budget-controls"><label for="sealBudget">งบประมาณ (บาท)<input id="sealBudget" type="number" min="1" max="10000000" step="1" placeholder="เช่น 500"></label><button class="btn primary" id="sealBudgetSend" type="button">${html(configuredSettingText(state.settings,'sealBudgetButton','💬 คัดลอกและเปิด Messenger'))}</button></div><small>เปิดแชตแล้วกดวางข้อความและส่งให้ร้าน • ยังไม่ใช่การยืนยันซื้อ</small><textarea id="sealBudgetMessage" readonly hidden aria-label="ข้อความขอให้ร้านจัดซีล"></textarea></div>`:''}
       <div class="shop-heading"><div><h2 class="panel-title">${state.wishlistOnly ? '❤️ รายการโปรด' : state.catalogType === 'SEAL' ? 'รายการซีล' : state.catalogType === 'ITEM' ? 'ไอเทมในเกม' : state.catalogType === 'TMONEY' ? 'เงิน T' : 'บริการของร้าน'}</h2><p class="product-meta">${state.wishlistOnly ? 'รายการโปรดเก็บอยู่ในอุปกรณ์เครื่องนี้' : state.catalogType==='TMONEY'?'กรอกจำนวน T ที่ต้องการ ระบบคำนวณจาก Rate ปัจจุบันและตรวจ Stock จริงอีกครั้งที่ Server':'เลือกจำนวนและเพิ่มลงรายการ จากนั้นส่งให้ร้านตรวจสอบสต๊อก'}</p></div></div>
       <div class="commerce-flow" aria-label="ขั้นตอนสั่งซื้อ"><b>1 เลือกสินค้า</b><i>→</i><b>2 ตรวจตะกร้า</b><i>→</i><b>3 Copy/ส่งให้ร้าน</b><i>→</i><b>4 ร้านตรวจและจัดของ</b><i>→</i><b>5 เสร็จสิ้น</b></div>
       <div class="filters">
         <div class="catalog-toolbar"><label for="catalogSort">เรียงสินค้า <select id="catalogSort">${[['DEFAULT','ลำดับของร้าน'],['NAME','ชื่อ ก–ฮ'],['PRICE_ASC','ราคา ต่ำ–สูง'],['PRICE_DESC','ราคา สูง–ต่ำ']].map(([value,label])=>`<option value="${value}" ${state.catalogSort===value?'selected':''}>${label}</option>`).join('')}</select></label><label class="available-filter"><input id="availableOnly" type="checkbox" ${state.availableOnly?'checked':''}> เฉพาะที่มีสต๊อกยืนยัน</label><small>ราคาต่อหน่วย • ร้านตรวจสต๊อกก่อนยืนยัน</small></div>
         <div class="smart-search-wrap"><input class="search" id="searchInput" autocomplete="off" placeholder="ค้นหาชื่อ Alias สาย หรือพิมพ์คลาดเคลื่อนได้..." value="${html(state.search)}">${state.search ? `<button class="search-clear" id="searchClearBtn">×</button>` : ''}${suggestions.length ? `<div class="search-suggestions">${suggestions.map((p)=>`<button data-search-suggestion="${html(p.name)}" data-search-product="${html(productKey(p))}"><b>${html(p.name)}</b><span>${html(productMeta(p))}</span></button>`).join('')}</div>` : ''}</div>
         ${state.recentSearches.length ? `<div class="recent-searches"><span>ค้นหาล่าสุด:</span>${state.recentSearches.map((q)=>`<button data-recent-search="${html(q)}">${html(q)}</button>`).join('')}<button id="clearRecentSearches">ล้าง</button></div>` : ''}
-        ${state.catalogType === 'SEAL' ? `<div class="chip-row">${['ALL', 'AT', 'HT', 'CT', 'HP', 'DS', 'DE', 'EV', 'BL'].map((category) => `<button class="filter-chip ${state.category === category ? 'active' : ''}" data-cat="${category}">${category === 'ALL' ? 'ทั้งหมด' : category}</button>`).join('')}</div>` : ''}
+        ${state.catalogType === 'SEAL' ? `<div class="chip-row">${['ALL', 'AT', 'HT', 'CT', 'HP', 'DS', 'DE', 'EV', 'BL'].map((category) => `<button class="filter-chip ${state.category === category ? 'active' : ''}" data-seal-line="${category}" data-cat="${category}">${category === 'ALL' ? 'ทั้งหมด' : category}</button>`).join('')}</div>` : ''}
         ${subcategories.length?`<div class="subcategory-filter" aria-label="เลือกหมวดย่อย"><div class="subcategory-filter-title"><b>หมวดย่อย</b><span>เลือกเพื่อกรองสินค้า</span></div><div class="chip-row subcategory-filter-options"><button class="filter-chip subcategory-chip ${state.section==='ALL'?'active':''}" data-sec="ALL" aria-pressed="${state.section==='ALL'}">ทุกหมวดย่อย</button>${subcategories.map(row=>`<button class="filter-chip subcategory-chip ${state.section===row.value?'active':''}" data-sec="${html(row.value)}" aria-pressed="${state.section===row.value}">${html(row.label)}</button>`).join('')}</div></div>`:''}
       </div>
       ${servicePosterUrl?`<div class="service-poster"><img src="${html(servicePosterUrl)}" alt="โปสเตอร์บริการ" loading="lazy" decoding="async" onerror="this.closest('.service-poster').hidden=true"></div>`:''}
+      <div class="product-meta">พร้อมขาย ${products.filter(p=>canBuy(p)&&p.status!=='CHECK_STOCK'&&availableStock(p)!==''&&Number(availableStock(p))>0).length} จาก ${products.length} รายการที่แสดงตามตัวกรอง</div>
       <div class="search-summary">พบ ${products.length} รายการ${state.search ? ` สำหรับ “${html(state.search)}”` : ''}${products.length>visibleProducts.length?` • แสดง ${visibleProducts.length} รายการแรก`:''}</div><div class="products">${products.length ? visibleProducts.map(productCard).join('') : '<div class="empty"><b>ไม่พบสินค้า</b><span>ลองตรวจคำสะกด เปลี่ยนหมวด หรือค้นด้วยชื่อเรียกอื่น</span><button class="btn small" id="emptyResetBtn">ล้างการค้นหา</button></div>'}</div>${products.length>visibleProducts.length?`<button class="btn load-more" id="loadMoreProductsBtn">แสดงเพิ่มอีก ${Math.min(60,products.length-visibleProducts.length)} รายการ</button>`:''}
     </section>
     ${cartPanel()}
@@ -628,13 +674,30 @@ function shopPage() {
 }
 
 function cartItem(item) {
-  const product = allProducts().find((entry) => entry.id === item.id && entry.kind === item.kind);
-  const atLimit = product && item.quantity >= productMaxQty(product);
-  const displayProduct=product||item;
-  return `<div class="cart-item">
-    <div><b>${html(item.name)}</b><div class="product-meta">${money(item.quantity)} ${html(saleUnit(displayProduct))} × ${formatProductPrice(displayProduct)} = ${money(item.quantity * item.price)} บาท</div></div>
-    <div class="cart-controls"><button class="btn small" data-dec="${html(item.id)}">−</button><b>${money(item.quantity)}</b><button class="btn small" data-inc="${html(item.id)}" ${atLimit ? 'disabled' : ''}>+</button><button class="btn danger small" data-remove="${html(item.id)}" style="grid-column:1/-1">ลบ</button></div>
-  </div>`;
+  return `<div class="compact-cart-item"><div class="compact-cart-name"><b>${html(item.name)}</b><small>${item.groupKey?`เซ็ต · ${item.memberIds.length} ซีล` :html(saleUnit(item))}</small></div><input class="compact-cart-qty" type="number" min="1" step="1" value="${item.quantity}" ${item.groupKey?`data-cart-set-qty="${html(item.groupKey)}"`:`data-cart-qty="${html(item.id)}"`} aria-label="จำนวน ${html(item.name)}"><button class="compact-cart-remove" ${item.groupKey?`data-remove-set="${html(item.groupKey)}"`:`data-remove="${html(item.id)}"`} aria-label="ลบ ${html(item.name)}">×</button><strong class="compact-cart-price">${money(item.quantity*item.price)} ฿</strong></div>`;
+}
+
+function cartSetMemberQuantity(group,id){return group.memberQuantities?.[id]??group.multiplier;}
+function compactCartEntries(){
+  const remaining=new Map(state.cart.map(p=>[`${p.kind}|${p.id}`,p.quantity])),entries=[];
+  for(const group of state.cartSetGroups||[]){
+    if(group.quantity<=0||!group.memberIds.length||!group.memberIds.every(id=>(remaining.get(`SEAL|${id}`)||0)>=cartSetMemberQuantity(group,id)*group.quantity))continue;
+    const price=roundMoney(group.memberIds.reduce((sum,id)=>sum+(state.cart.find(p=>p.kind==='SEAL'&&p.id===id)?.price||0)*cartSetMemberQuantity(group,id),0));
+    entries.push({...group,groupKey:group.key,price});group.memberIds.forEach(id=>remaining.set(`SEAL|${id}`,remaining.get(`SEAL|${id}`)-cartSetMemberQuantity(group,id)*group.quantity));
+  }
+  state.cart.forEach(p=>{const quantity=remaining.get(`${p.kind}|${p.id}`)||0;if(quantity>0)entries.push({...p,quantity});});return entries.sort((a,b)=>{const rank=p=>p.kind==='SEAL'||p.groupKey?({AT:0,HT:1,CT:2,HP:3,DS:4,DE:5,EV:6,BL:7,ALL:8}[p.category]??9):10;return rank(a)-rank(b)||(a.kind==='SEAL'&&b.kind==='SEAL'?sealPackPrice(a)-sealPackPrice(b):Number(a.price)-Number(b.price))||String(a.name).localeCompare(String(b.name),'th');});
+}
+function changeCartSetQuantity(key,value){
+  const entry=compactCartEntries().find(p=>p.groupKey===key),group=state.cartSetGroups.find(g=>g.key===key);if(!entry||!group)return;
+  const next=Math.max(0,Math.floor(Number(value)||0)),delta=next-group.quantity;if(!Number.isSafeInteger(next))return toast('จำนวนไม่ถูกต้อง');
+  if(delta>0)for(const id of group.memberIds){const item=state.cart.find(p=>p.kind==='SEAL'&&p.id===id),product=state.seals.find(p=>p.id===id);if(!item||!product||item.unit!==saleUnit(product)||!canBuy(product)||item.quantity+delta*cartSetMemberQuantity(group,id)>productMaxQty(product)){toast(`เพิ่มไม่ได้: ${product?.name||'ซีล'} มีสต๊อกไม่พอหรือหน่วยขายเปลี่ยน`);renderPreservingScroll();return;}}
+  group.memberIds.forEach(id=>{const item=state.cart.find(p=>p.kind==='SEAL'&&p.id===id);if(item)item.quantity+=delta*cartSetMemberQuantity(group,id);});state.cart=state.cart.filter(p=>p.quantity>0);group.quantity=next;if(!next)state.cartSetGroups=state.cartSetGroups.filter(g=>g.key!==key);state.copyNotice='';renderPreservingScroll();
+}
+function changeCartQuantity(id,value){
+  const item=state.cart.find(p=>p.id===id);if(!item)return;const displayed=compactCartEntries().find(p=>!p.groupKey&&p.id===id);if(!displayed)return;
+  const next=Math.max(1,Math.floor(Number(value)||1)),total=item.quantity-displayed.quantity+next,product=allProducts().find(p=>p.id===id&&p.kind===item.kind);
+  if(!Number.isSafeInteger(next)||total>item.quantity&&(!product||!canBuy(product)||total>productMaxQty(product))){toast(product?stockLimitMessage(product):'ไม่พบสินค้า');renderPreservingScroll();return;}
+  item.quantity=total;state.copyNotice='';renderPreservingScroll();
 }
 
 
@@ -685,12 +748,11 @@ function cartPanel() {
   const remaining = pricing.sealSubtotal ? threshold - (pricing.sealSubtotal % threshold) : threshold;
   const facebookContact=safeExternalUrl(cfg.facebookUrl||state.settings.facebookUrl);
   const messengerContact=safeExternalUrl(cfg.messengerUrl||state.settings.messengerUrl);
+  const entries=compactCartEntries();
   return `<aside class="panel cart-panel">
-    <h2 class="panel-title">🛒 รายการที่เลือก (${state.cart.length})</h2>
-    <div class="checkout-steps"><span class="done"><b>1</b> เลือกสินค้า</span><span class="${state.cart.length ? 'active' : ''}"><b>2</b> คัดลอกรายการ</span><span><b>3</b> ส่งในแชต Facebook</span></div>
-    <div class="cart-list">${state.cart.length ? state.cart.map(cartItem).join('') : '<div class="empty">ยังไม่มีสินค้า</div>'}</div>
-    ${categoryDiscountHtml(pricing)}<div class="total-box"><span>ราคาก่อนลด ${money(subtotal)} • ส่วนลดรวม ${money(pricing.discount)}</span><span class="total-price">สุทธิ ${money(total)} บาท</span></div>${pricing.messages.length?`<div class="promo"><b>โปรโมชั่นอื่น</b><br>${pricing.messages.map(html).join("<br>")}</div>`:""}
-    <div class="promo">${promotionSets > 0 ? `🎁 โปร D2 คิดจากยอดซีลเท่านั้น: ${money(pricing.sealSubtotal)} บาท<br>ได้รับ D2 ${money(promotionSets * (Number(state.settings.promoReward) || 150))} อัน` : `โปร D2 คิดจากยอดซีลเท่านั้น<br>ซื้อซีลเพิ่มอีก ${money(remaining)} บาทเพื่อรับ D2`}</div>
+    <div class="compact-cart-header"><div><span class="compact-cart-eyebrow">รายการของคุณ</span><h2 class="panel-title">รายการที่เลือก</h2></div><span class="badge">${entries.length} รายการ</span></div>
+    <div class="cart-list">${entries.length ? entries.map(cartItem).join('') : '<div class="empty">ยังไม่ได้เลือกสินค้า</div>'}</div>
+    <div class="compact-cart-summary"><div><span>รวมก่อนส่วนลด</span><b>${money(subtotal)} ฿</b></div>${pricing.categoryDiscounts.filter(row=>row.subtotal>0&&row.percent>0).map(row=>`<div><span>ลด${html(row.label)} ${money(row.percent)}%</span><b>−${money(row.amount)} ฿</b></div>`).join('')}${pricing.promotionDiscount>0?`<div><span>ลดโปรโมชั่น</span><b>−${money(pricing.promotionDiscount)} ฿</b></div>`:''}<div class="compact-cart-net"><b>ยอดประมาณ</b><strong>${money(total)} ฿</strong></div><div class="compact-cart-d2">${promotionSets>0?`🎁 D2 ประมาณ ${money(promotionSets*(Number(state.settings.promoReward)||150))} อัน`:`🎁 ซื้อซีลเพิ่ม ${money(remaining)} ฿ รับ D2`}</div></div>
     <div class="customer-fields">
       <input id="tamer" placeholder="ชื่อเทมเมอร์" value="${html(state.customer.tamer)}">
       <div class="security-note">🌐 ให้บริการเฉพาะเซิร์ฟเวอร์ ลิเวียมอน</div>
@@ -714,6 +776,7 @@ function addToCart(id, quantity) {
   state.copyNotice='';
   quantity = Math.max(1, Math.floor(Number(quantity) || 1));
   const existing = state.cart.find((entry) => entry.id === id);
+  if(existing&&existing.unit!==saleUnit(product))return toast('หน่วยขายเปลี่ยนแล้ว กรุณาล้างรายการและเลือกใหม่');
   const nextQuantity = (existing ? existing.quantity : 0) + quantity;
   const available = availableStock(product);
   if (available !== '' && nextQuantity > available) {
@@ -735,22 +798,22 @@ function orderText(customer = {}) {
   const promotionSets = Math.floor(pricing.sealSubtotal / threshold);
   const remaining = pricing.sealSubtotal ? threshold - (pricing.sealSubtotal % threshold) : threshold;
   const productByKey=new Map(allProducts().map(p=>[productKey(p),p])),groups={SERVICE:[],ITEM:[],SEAL:[],TMONEY:[]},sealOrder={AT:0,HT:1,CT:2,HP:3,DS:4,DE:5,EV:6,BL:7};
-  state.cart.forEach(item=>{const product=productByKey.get(`${item.kind}|${item.id}`)||item;(groups[item.kind]||groups.ITEM).push({...item,...product,quantity:item.quantity,price:item.price});});
-  groups.SEAL.sort((a,b)=>(sealOrder[a.category]??99)-(sealOrder[b.category]??99)||String(a.name).localeCompare(String(b.name),'th'));
+  state.cart.forEach(item=>{const product=productByKey.get(`${item.kind}|${item.id}`)||item;(groups[item.kind]||groups.ITEM).push({...item,...product,quantity:item.quantity,price:item.price,unit:item.unit,packSize:item.packSize});});
+  groups.SEAL.sort((a,b)=>(sealOrder[a.category]??99)-(sealOrder[b.category]??99)||sealPackPrice(a)-sealPackPrice(b)||String(a.name).localeCompare(String(b.name),'th'));
   const normalLine=item=>`${item.name} ${money(item.quantity)} ${saleUnit(item)} — ${money(item.price*item.quantity)} บาท`;
-  const itemLines=[];
+  const itemLines=compactCartEntries().filter(item=>item.groupKey).map(item=>`📦 ${item.name} ${money(item.quantity)} เซ็ต (รายละเอียดซีลด้านล่าง)`);
   if(groups.SERVICE.length)itemLines.push('⚔️ บริการ',...groups.SERVICE.map(normalLine));
   if(groups.ITEM.length){if(itemLines.length)itemLines.push('');itemLines.push('🎒 ไอเทม',...groups.ITEM.map(normalLine));}
   if(groups.SEAL.length){if(itemLines.length)itemLines.push('');itemLines.push('🦖 ซีล');let last='';groups.SEAL.forEach(item=>{if(item.category!==last){itemLines.push('',item.category||'ไม่ระบุสาย');last=item.category;}itemLines.push(normalLine(item));});}
   if(groups.TMONEY.length){if(itemLines.length)itemLines.push('');itemLines.push('💰 เงิน T',...groups.TMONEY.map(item=>`${money(item.quantity)}T × ${money(item.price)} บาท — ${money(item.price*item.quantity)} บาท`));}
-  const categoryRows=pricing.categoryDiscounts.filter(row=>row.subtotal>0&&row.percent>0&&row.amount>0),pricingLines=[`ราคาก่อนลด ${money(pricing.subtotal)} บาท`];
-  if(settingEnabled(state.settings,'orderCopyShowCategoryDiscounts',true)&&categoryRows.length)pricingLines.push('ส่วนลดตามหมวด:',...categoryRows.map(row=>`${row.label} ${money(row.percent)}%: ลด ${money(row.amount)} บาท (จาก ${money(row.subtotal)} บาท)`),`ส่วนลดตามหมวดรวม ${money(pricing.categoryDiscountTotal)} บาท`);
-  if(settingEnabled(state.settings,'orderCopyShowPromotions',true)&&pricing.promotionDiscount>0)pricingLines.push(`ส่วนลดโปรโมชั่นอื่น ${money(pricing.promotionDiscount)} บาท`);
-  if(pricing.discount>0)pricingLines.push(`ส่วนลดรวม ${money(pricing.discount)} บาท`);
-  pricingLines.push(`ยอดสุทธิหลังลด ${money(total)} บาท`);
+  const categoryRows=pricing.categoryDiscounts.filter(row=>row.subtotal>0&&row.percent>0&&row.amount>0),pricingLines=[`รวมก่อนลด ${money(pricing.subtotal)} บาท`];
+  const showCategories=settingEnabled(state.settings,'orderCopyShowCategoryDiscounts',true);
+  if(showCategories)pricingLines.push(...categoryRows.map(row=>`ลด${row.label} ${money(row.percent)}% −${money(row.amount)} บาท`));
+  if(showCategories&&settingEnabled(state.settings,'orderCopyShowPromotions',true)&&pricing.promotionDiscount>0)pricingLines.push(`ลดโปรโมชั่น −${money(pricing.promotionDiscount)} บาท`);
+  if(pricing.discount>0&&(!showCategories||pricing.promotionDiscount>0&&!settingEnabled(state.settings,'orderCopyShowPromotions',true)))pricingLines.push(`ส่วนลดรวม${categoryRows.length===1&&!pricing.promotionDiscount?` ${money(categoryRows[0].percent)}%`:''} −${money(pricing.discount)} บาท`);
+  pricingLines.push(`ยอดสุทธิ ${money(total)} บาท`);
   const promotionLines=[];
-  if(settingEnabled(state.settings,'orderCopyShowPromotions',true)&&pricing.messages.length)promotionLines.push('โปรโมชั่นอื่น:',...pricing.messages);
-  if(settingEnabled(state.settings,'orderCopyShowD2',true))promotionLines.push(...(promotionLines.length?['']:[]),'🎁 โปรโมชั่น D2 (คิดเฉพาะซีล)',`ยอดซีลที่ร่วมโปร D2: ${money(pricing.sealSubtotal)} บาท`,promotionSets>0?`ได้รับ D2: ${money(promotionSets*(Number(state.settings.promoReward)||150))} อัน`:`ซื้อซีลเพิ่มอีก ${money(remaining)} บาทเพื่อรับ D2`);
+  if(settingEnabled(state.settings,'orderCopyShowD2',true))promotionLines.push(promotionSets>0?`🎁 D2 ประมาณ ${money(promotionSets*(Number(state.settings.promoReward)||150))} อัน`:`🎁 ซื้อซีลเพิ่ม ${money(remaining)} บาท รับ D2`);
   const blocks={
     title:'🛒 รายการสั่งซื้อ DMO',
     items:settingEnabled(state.settings,'orderCopyShowItems',true)?itemLines.join('\n'):'',
@@ -977,7 +1040,7 @@ function inventoryRow(product) {
   const stateClass = available === '' ? 'check' : available <= 0 ? 'out' : low ? 'low' : 'ok';
   const busy=!!state.stockActionPending;
   return `<article class="inventory-row ${stateClass}">
-    <div class="inventory-info"><b>${html(product.name)}</b><div class="product-meta">${product.kind === 'SEAL' ? `${html(product.category)} • ${sectionLabel(product.section)}` : html(product.itemCategory || 'ไอเทม')} • ${html(product.unit || '')}</div></div>
+    <div class="inventory-info"><b>${html(product.name)}</b><div class="product-meta">${product.kind === 'SEAL' ? `${html(product.category)} • ${sectionLabel(product.section)}` : html(product.itemCategory || 'ไอเทม')} • ${html(product.kind==='SEAL'&&product.stockUnit==='LEAF'?'ใบ':product.unit || '')}</div></div>
     <div class="inventory-kpis"><span>ทั้งหมด<b>${product.stock === '' ? '-' : money(product.stock)}</b></span><span>กันไว้<b>${money(product.reservedStock || 0)}</b></span><span>ขายได้<b>${available === '' ? '-' : money(available)}</b></span><span>เตือนที่<b>${money(product.lowStockAlert || 0)}</b></span></div>
     <div class="inventory-actions"><button class="btn small" data-stock-adjust="${html(product.kind)}|${html(product.id)}|-100" ${busy?'disabled':''}>-100</button><button class="btn small" data-stock-adjust="${html(product.kind)}|${html(product.id)}|-10" ${busy?'disabled':''}>-10</button><button class="btn small" data-stock-adjust="${html(product.kind)}|${html(product.id)}|-1" ${busy?'disabled':''}>-1</button><button class="btn success small" data-stock-adjust="${html(product.kind)}|${html(product.id)}|1" ${busy?'disabled':''}>+1</button><button class="btn success small" data-stock-adjust="${html(product.kind)}|${html(product.id)}|10" ${busy?'disabled':''}>+10</button><button class="btn success small" data-stock-adjust="${html(product.kind)}|${html(product.id)}|100" ${busy?'disabled':''}>+100</button><button class="btn primary small" data-stock-set="${html(product.kind)}|${html(product.id)}" ${busy?'disabled':''}>กำหนด</button></div>
   </article>`;
@@ -1002,7 +1065,7 @@ function adminProduct(product) {
   const categoryLabel = product.kind === 'SEAL' ? `${product.category} • ${sectionLabel(product.section)}` : product.kind === 'SERVICE' ? product.serviceCategory : product.kind === 'TMONEY' ? 'Rate และ Stock' : product.itemCategory;
   const kindLabel = product.kind === 'SEAL' ? 'ซีล' : product.kind === 'SERVICE' ? 'บริการ' : product.kind === 'TMONEY' ? 'เงิน T' : 'ไอเทม';
   const key = `${product.kind}|${product.id}`;
-  return `<div class="admin-card ${state.adminSelected.includes(key)?'selected':''}" data-admin-name="${html(norm(product.name))}"><label class="row-check"><input type="checkbox" data-select-product="${html(key)}" ${state.adminSelected.includes(key)?'checked':''}></label><div class="admin-thumb"><span>${productFallbackIcon(product)}</span>${product.imageUrl ? `<img loading="lazy" decoding="async" fetchpriority="low" src="${html(product.imageUrl)}" alt="" onerror="this.hidden=true">` : ''}</div><div><b>${html(product.name)}</b><div class="product-meta"><span class="badge">${kindLabel}</span><span class="badge">${html(categoryLabel || '')}</span><span class="badge ${product.status === 'ACTIVE' ? 'green' : product.status === 'CHECK_STOCK' ? 'amber' : 'red'}">${html(product.status || 'ACTIVE')}</span> ${formatProductPrice(product)}</div><div class="product-meta">${stockText(product)}</div></div><div><button class="btn small" data-edit="${html(product.kind)}|${html(product.id)}">แก้ไข</button> <button class="btn danger small" data-delete="${html(product.kind)}|${html(product.id)}" ${product.kind==='TMONEY'?'disabled title="เงิน T เป็นสินค้าระบบหนึ่งรายการ"':''}>ถังขยะ</button></div></div>`;
+  return `<div class="admin-card ${state.adminSelected.includes(key)?'selected':''}" data-admin-name="${html(norm(product.name))}"><label class="row-check"><input type="checkbox" data-select-product="${html(key)}" ${state.adminSelected.includes(key)?'checked':''}></label><div class="admin-thumb"><span>${productFallbackIcon(product)}</span>${product.imageUrl ? `<img loading="lazy" decoding="async" fetchpriority="low" src="${html(product.imageUrl)}" alt="" onerror="this.hidden=true">` : ''}</div><div><b>${html(product.name)}</b><div class="product-meta"><span class="badge">${kindLabel}</span><span class="badge">${html(categoryLabel || '')}</span><span class="badge ${product.status === 'ACTIVE' ? 'green' : product.status === 'CHECK_STOCK' ? 'amber' : 'red'}">${html(product.status || 'ACTIVE')}</span>${product.kind==='SEAL'?`<span class="badge ${String(product.allowSplitSale).toUpperCase()==='TRUE'?'green':''}">${String(product.allowSplitSale).toUpperCase()==='TRUE'?'ขายแยกเป็นใบ':'ขายเป็นชุด'}</span>`:''} ${formatProductPrice(product)}</div><div class="product-meta">${stockText(product)}</div></div><div><button class="btn small" data-edit="${html(product.kind)}|${html(product.id)}">แก้ไข</button> <button class="btn danger small" data-delete="${html(product.kind)}|${html(product.id)}" ${product.kind==='TMONEY'?'disabled title="เงิน T เป็นสินค้าระบบหนึ่งรายการ"':''}>ถังขยะ</button></div></div>`;
 }
 
 function imageManagementPage(){
@@ -1444,11 +1507,19 @@ function themeSettingsPanel(settings){
   return `<section class="panel theme-settings"><div class="admin-toolbar"><div><h2 class="panel-title">🎨 Theme เว็บไซต์</h2><p class="product-meta">ปรับสีหลักของหน้าร้านได้ทันที • ระบบจะตรวจรูปแบบสีและเลือกสีตัวอักษรบนปุ่มให้อ่านง่ายอัตโนมัติ</p></div><button class="btn" id="restoreThemeDefaultsBtn" type="button">คืนค่าเริ่มต้น</button></div><div class="theme-editor-grid"><div class="form-grid theme-fields"><label>โหมดเริ่มต้น<select id="setThemeDefault"><option value="DARK" ${theme==='DARK'?'selected':''}>มืด</option><option value="LIGHT" ${theme==='LIGHT'?'selected':''}>สว่าง</option></select></label><label>สีหลัก<input id="setThemePrimary" type="color" value="${html(palette.primary.toLowerCase())}"></label><label>สีรอง / Accent<input id="setThemeAccent" type="color" value="${html(palette.accent.toLowerCase())}"></label><label>สีพื้นหลัง<input id="setThemeBackground" type="color" value="${html(palette.background.toLowerCase())}"></label><label>สีปุ่ม<input id="setThemeButton" type="color" value="${html(palette.button.toLowerCase())}"></label><label>สีข้อความสำคัญ<input id="setThemeImportant" type="color" value="${html(palette.important.toLowerCase())}"></label></div><div class="theme-preview" id="themePreview"><span>ตัวอย่างหน้าร้าน</span><strong>สินค้าและยอดสุทธิ</strong><p>ข้อความทั่วไปยังคงอ่านง่าย</p><button class="btn primary" type="button" tabindex="-1">ปุ่มหลัก</button><button class="btn" type="button" tabindex="-1">ปุ่มทั่วไป</button><div class="theme-swatches"><i data-theme-swatch="primary"></i><i data-theme-swatch="accent"></i><i data-theme-swatch="background"></i><i data-theme-swatch="button"></i><i data-theme-swatch="important"></i></div></div></div><div class="security-note">หากค่าที่ส่งมาไม่ใช่สีแบบ #RRGGBB ระบบจะใช้ค่าสีเริ่มต้นแทนอย่างปลอดภัย</div></section>`;
 }
 
+function sealSetSettingsPanel(settings){
+  let rows;try{rows=JSON.parse(settings.sealSetsJson||'null');}catch(ignore){}
+  if(!Array.isArray(rows))rows=sealSetOffers().map(o=>({id:o.id,name:o.name,category:o.category,multiplier:o.multiplier,enabled:true,imageUrl:'',memberIds:o.members.map(p=>p.id)}));
+  return `<section class="panel"><h2 class="panel-title">📦 จัดการเซ็ตซีล</h2><p class="product-meta">แก้ชื่อ รูป เปิด–ปิด และเลือกซีลในแต่ละเซ็ต ราคาคำนวณจากซีลเดี่ยวเสมอ เมื่อบันทึกแล้วรายชื่อจะคงที่จนกว่าคุณแก้เอง</p>${rows.map(row=>`<details class="seal-set-editor" data-set-editor="${html(row.id)}" data-set-category="${html(row.category)}" data-set-multiplier="${row.multiplier}"><summary>${html(row.name)} · ${row.memberIds.length} ซีล</summary><div class="form-grid"><label>ชื่อเซ็ต<input data-set-name value="${html(row.name)}"></label><label><input type="checkbox" data-set-enabled ${row.enabled!==false?'checked':''}> เปิดขาย</label><label class="full">URL รูปเซ็ต (เว้นว่างได้)<input data-set-image value="${html(row.imageUrl||'')}"></label></div><div class="seal-set-member-picker">${state.seals.filter(p=>p.section==='NORMAL'&&Number(p.packSize)===1000&&(row.category==='ALL'||p.category===row.category)).sort((a,b)=>sealPackPrice(a)-sealPackPrice(b)).map(p=>`<label><input type="checkbox" data-set-member value="${html(p.id)}" ${row.memberIds.includes(p.id)?'checked':''}> ${html(p.name)} · ${money(sealPackPrice(p))} บาท/ชุด</label>`).join('')}</div></details>`).join('')}</section>`;
+}
+function sealSetSettingsFromForm(){return Array.from(document.querySelectorAll('[data-set-editor]')).map(el=>({id:el.dataset.setEditor,category:el.dataset.setCategory,multiplier:Number(el.dataset.setMultiplier),name:el.querySelector('[data-set-name]').value.trim(),enabled:el.querySelector('[data-set-enabled]').checked,imageUrl:el.querySelector('[data-set-image]').value.trim(),memberIds:Array.from(el.querySelectorAll('[data-set-member]:checked')).map(input=>input.value)}));}
 function adminSettings(){
   const settings=state.adminData.settings||{},security=state.adminData.security||{},account=security.account||security.actor||{},owner=String(account.role||'')==='OWNER',environment=security.environment||'ไม่ทราบ';
   const checked=key=>settingEnabled(settings,key,true)?'checked':'';
   return `${adminSettingsBase()}
   ${themeSettingsPanel(settings)}
+  ${sealSetSettingsPanel(settings)}
+  <section class="panel"><h2>ข้อความให้ร้านจัดซีลตามงบ</h2>${[['sealBudgetTitle','หัวข้อ','🌟 มือใหม่? ให้ร้านจัดซีลตามงบ'],['sealBudgetDescription','คำอธิบาย','ไม่รู้จะเลือกตัวไหน บอกงบแล้วให้ร้านช่วยแนะนำได้เลย'],['sealBudgetButton','ข้อความปุ่ม','💬 คัดลอกและเปิด Messenger'],['sealBudgetTemplate','ข้อความส่ง (ใช้ {budget} แทนงบ)','สวัสดีครับ/ค่ะ อยากให้ร้านช่วยจัดซีลตามงบ {budget} บาท']].map(([key,label,fallback])=>`<label class="full">${label}<textarea data-budget-setting="${key}" maxlength="3000">${html(configuredSettingText(settings,key,fallback))}</textarea></label>`).join('')}</section>
   <section class="panel"><h2 class="panel-title">🏷️ ส่วนลดตามหมวดสินค้า</h2><p class="product-meta">คำนวณจากยอดรวมของแต่ละหมวด เงิน T นับรวมกับไอเทม • ใส่ 0 หรือเว้นว่าง = ไม่ลด</p><div class="form-grid"><label>ซีล (%)<input id="setCategoryDiscountSeal" type="number" min="0" max="100" step="0.01" value="${html(settings.categoryDiscountSealPercent||'')}" placeholder="0"></label><label>ไอเทม (%)<input id="setCategoryDiscountItem" type="number" min="0" max="100" step="0.01" value="${html(settings.categoryDiscountItemPercent||'')}" placeholder="0"></label><label>เซอร์วิส (%)<input id="setCategoryDiscountService" type="number" min="0" max="100" step="0.01" value="${html(settings.categoryDiscountServicePercent||'')}" placeholder="0"></label><div class="security-note full">ส่วนลดใหม่มีผลเฉพาะออเดอร์ที่สร้างหลังบันทึก ออเดอร์เก่าใช้ snapshot เดิม</div></div></section>
   <section class="panel"><h2 class="panel-title">📋 ข้อความคัดลอกรายการสั่งซื้อ</h2><p class="product-meta">Template ใช้จัดรูปแบบการแสดงผลเท่านั้น ราคาและส่วนลดอ่านจากระบบคำนวณจริงเสมอ</p><label class="full">Template<textarea id="setOrderCopyTemplate" class="template-editor">${html(configuredSettingText(settings,'orderCopyTemplate',DEFAULT_ORDER_COPY_TEMPLATE))}</textarea></label><div class="template-token-list">Token ที่ใช้ได้: <code>{title}</code> <code>{items}</code> <code>{pricing}</code> <code>{promotions}</code> <code>{customer}</code> <code>{notice}</code></div><div class="form-grid toggle-grid"><label><input id="setOrderCopyShowItems" type="checkbox" ${checked('orderCopyShowItems')}> รายการสินค้า</label><label><input id="setOrderCopyShowPricing" type="checkbox" ${checked('orderCopyShowPricing')}> สรุปราคา</label><label><input id="setOrderCopyShowCategoryDiscounts" type="checkbox" ${checked('orderCopyShowCategoryDiscounts')}> ส่วนลดตามหมวด</label><label><input id="setOrderCopyShowPromotions" type="checkbox" ${checked('orderCopyShowPromotions')}> โปรโมชั่นอื่น</label><label><input id="setOrderCopyShowD2" type="checkbox" ${checked('orderCopyShowD2')}> โปรโมชั่น D2</label><label><input id="setOrderCopyShowCustomer" type="checkbox" ${checked('orderCopyShowCustomer')}> ข้อมูลลูกค้า</label><label><input id="setOrderCopyShowNotice" type="checkbox" ${checked('orderCopyShowNotice')}> ข้อความท้ายออเดอร์</label></div><div class="security-note">ส่วนลด 0% จะไม่แสดงรายละเอียดส่วนลดโดยอัตโนมัติ</div></section>
   <section class="panel"><button class="btn success full" id="saveSettingsBtn">บันทึกการตั้งค่าทั้งหมด</button></section>
@@ -1466,7 +1537,7 @@ function editModal() {
   const service = record.kind === 'SERVICE';
   const tMoney=record.kind==='TMONEY';
   const imagePreview=state.recordImageUpload?.previewUrl||safeExternalUrl(record.imageUrl||'');
-  return `<div class="modal-backdrop" id="modalBackdrop"><div class="modal"><h2>${record.id ? 'แก้ไข' : 'เพิ่ม'}${seal ? 'ซีล' : service ? 'บริการ' : tMoney ? 'เงิน T' : 'ไอเทม'}</h2><div class="form-grid"><label>ชื่อ<input id="fName" value="${html(record.name || '')}" ${tMoney?'readonly':''}></label><label>ชื่อค้นหาเพิ่มเติม<input id="fAliases" value="${html(Array.isArray(record.aliases) ? record.aliases.join('|') : record.aliases || '')}" placeholder="คั่นด้วย |"></label>${seal ? `<label>สาย<select id="fCategory">${['AT', 'HT', 'CT', 'HP', 'DS', 'DE', 'EV', 'BL'].map((category) => `<option ${record.category === category ? 'selected' : ''}>${category}</option>`).join('')}</select></label><label>ประเภท<select id="fSection">${['NORMAL', 'BASE_HARD', 'SUSA'].map((section) => `<option value="${section}" ${record.section === section ? 'selected' : ''}>${sectionLabel(section)}</option>`).join('')}</select></label><label>ชื่ออังกฤษ/คำค้น DMO Wiki<input id="fWikiName" value="${html(record.wikiName || '')}" placeholder="เช่น Agumon"></label><label>ชื่อหน้าที่เชื่อม<input id="fWikiTitle" value="${html(record.wikiTitle || '')}" placeholder="เชื่อมผ่าน DMO Wiki Center"></label><label class="full">URL DMO Wiki<input id="fWikiUrl" value="${html(record.wikiUrl || '')}"></label>` : service ? `<label>หมวดบริการ<input id="fServiceCategory" value="${html(record.serviceCategory || '')}" placeholder="เช่น ดันเจียน / เควสต์"></label>` : tMoney ? '<div class="security-note">สินค้าเงิน T มีได้หนึ่งรายการ ระบบใช้ Rate × จำนวน T และตรวจ Stock ฝั่ง Server</div>' : `<label>หมวดไอเทม<input id="fItemCategory" value="${html(record.itemCategory || '')}"></label>`}<label>${tMoney?'Rate (บาท/T)':'ราคา'}<input id="fPrice" type="number" step="0.01" min="0" value="${html(record.price || 0)}"></label><label>หน่วย<input id="fUnit" value="${html(record.unit || (service ? 'ครั้ง' : tMoney ? 'T' : 'ชิ้น'))}" ${tMoney?'readonly':''}></label>${seal ? `<label>จำนวนต่อชุด<input id="fPackSize" type="number" value="${html(record.packSize || 1000)}"></label>` : ''}<label>สถานะ<select id="fStatus">${['ACTIVE', 'CHECK_STOCK', 'OUT_OF_STOCK', 'INACTIVE', 'HIDDEN'].map((status) => `<option ${record.status === status ? 'selected' : ''}>${status}</option>`).join('')}</select></label><label>สต๊อกทั้งหมด (เว้นว่าง = ตรวจสอบ)<input id="fStock" type="number" value="${record.stock === '' ? '' : html(record.stock)}"></label><label>จำนวนที่กันไว้<input id="fReservedStock" type="number" min="0" value="${html(record.reservedStock || 0)}"></label><label>แจ้งเตือนใกล้หมด<input id="fLowStockAlert" type="number" min="0" value="${html(record.lowStockAlert || 0)}"></label><label>ต้นทุนต่อหน่วย<input id="fCostPrice" type="number" step="0.01" min="0" value="${html(record.costPrice || '')}"></label><label>ลำดับแสดง<input id="fSort" type="number" value="${html(record.sortOrder || 10)}"></label><label>ป้ายสินค้า<input id="fBadge" value="${html(record.badge || '')}" placeholder="HOT / NEW / SALE"></label><label>แท็กค้นหา<input id="fTags" value="${html(record.tags || '')}" placeholder="PVP|ขายดี|ดิจิมอน X"></label><label class="full">คำค้นเพิ่มเติม<input id="fSearchKeywords" value="${html(record.searchKeywords || '')}" placeholder="คำสะกดอื่นหรือคำที่ลูกค้ามักใช้"></label><label class="full">หมายเหตุ<input id="fNote" value="${html(record.note || '')}"></label>${seal ? '' : `<label class="full">รายละเอียด<textarea id="fDescription">${html(record.description || '')}</textarea></label>`}<label class="full">URL รูป<input id="fImageUrl" value="${html(record.imageUrl || '')}" placeholder="วาง URL เดิมได้ตามปกติ"></label><div class="full admin-image-editor"><div class="admin-image-preview ${imagePreview?'has-image':''}" id="recordImagePreviewWrap">${imagePreview?`<img id="recordImagePreview" src="${html(imagePreview)}" alt="ตัวอย่างรูปสินค้า">`:'<span id="recordImagePreviewEmpty">ยังไม่มีรูปสินค้า</span>'}</div><div><label class="file-picker">เลือก/เปลี่ยนรูปจากเครื่อง<input id="fImageFile" type="file" accept="image/png,image/jpeg,image/webp,image/gif"></label><div class="chip-row"><button class="btn small" id="removeRecordImageBtn" type="button">นำรูปออก</button></div><small id="recordImageStatus">รองรับ PNG, JPG, WEBP, GIF • ระบบจะย่อรูปใหญ่ให้อัตโนมัติ</small></div></div></div><div class="chip-row" style="margin-top:14px">${seal ? '<button class="btn warning" id="wikiGalleryBtn">🖼 เลือกรูป Seal Master</button><button class="btn primary" id="wikiCenterRecordBtn">📚 ค้นหน้าข้อมูล DMO Wiki</button>' : ''}<button class="btn success" id="saveRecordBtn">บันทึก</button><button class="btn" id="closeModalBtn">ยกเลิก</button></div></div></div>`;
+  return `<div class="modal-backdrop" id="modalBackdrop"><div class="modal"><h2>${record.id ? 'แก้ไข' : 'เพิ่ม'}${seal ? 'ซีล' : service ? 'บริการ' : tMoney ? 'เงิน T' : 'ไอเทม'}</h2><div class="form-grid"><label>ชื่อ<input id="fName" value="${html(record.name || '')}" ${tMoney?'readonly':''}></label><label>ชื่อค้นหาเพิ่มเติม<input id="fAliases" value="${html(Array.isArray(record.aliases) ? record.aliases.join('|') : record.aliases || '')}" placeholder="คั่นด้วย |"></label>${seal ? `<label>สาย<select id="fCategory">${['AT', 'HT', 'CT', 'HP', 'DS', 'DE', 'EV', 'BL'].map((category) => `<option ${record.category === category ? 'selected' : ''}>${category}</option>`).join('')}</select></label><label>ประเภท<select id="fSection">${['NORMAL', 'BASE_HARD', 'SUSA'].map((section) => `<option value="${section}" ${record.section === section ? 'selected' : ''}>${sectionLabel(section)}</option>`).join('')}</select></label><label>ชื่ออังกฤษ/คำค้น DMO Wiki<input id="fWikiName" value="${html(record.wikiName || '')}" placeholder="เช่น Agumon"></label><label>ชื่อหน้าที่เชื่อม<input id="fWikiTitle" value="${html(record.wikiTitle || '')}" placeholder="เชื่อมผ่าน DMO Wiki Center"></label><label class="full">URL DMO Wiki<input id="fWikiUrl" value="${html(record.wikiUrl || '')}"></label>` : service ? `<label>หมวดบริการ<input id="fServiceCategory" value="${html(record.serviceCategory || '')}" placeholder="เช่น ดันเจียน / เควสต์"></label>` : tMoney ? '<div class="security-note">สินค้าเงิน T มีได้หนึ่งรายการ ระบบใช้ Rate × จำนวน T และตรวจ Stock ฝั่ง Server</div>' : `<label>หมวดไอเทม<input id="fItemCategory" value="${html(record.itemCategory || '')}"></label>`}<label>${tMoney?'Rate (บาท/T)':seal?'ราคาในชีต (ตามหน่วยราคา)':'ราคา'}<input id="fPrice" type="number" step="0.01" min="0" value="${html(record.price || 0)}"></label><label>หน่วย<input id="fUnit" value="${html(record.unit || (service ? 'ครั้ง' : tMoney ? 'T' : 'ชิ้น'))}" ${tMoney?'readonly':''}></label>${seal ? `<label>จำนวนใบต่อชุด<input id="fPackSize" type="number" min="1" step="1" value="${html(record.packSize || 1000)}"></label><label class="split-sale-toggle"><input id="fAllowSplitSale" type="checkbox" ${String(record.allowSplitSale).toUpperCase()==='TRUE'?'checked':''}> ขายแยกเป็นใบได้</label><div class="security-note full">ราคาต่อใบ = ราคาต่อชุด ÷ จำนวนใบต่อชุด • สต๊อกที่แปลงแล้วใช้หน่วยใบใน Google Sheets</div>` : ''}<label>สถานะ<select id="fStatus">${['ACTIVE', 'CHECK_STOCK', 'OUT_OF_STOCK', 'INACTIVE', 'HIDDEN'].map((status) => `<option ${record.status === status ? 'selected' : ''}>${status}</option>`).join('')}</select></label><label>${seal&&record.stockUnit==='LEAF'?'สต๊อกทั้งหมด (ใบ)':'สต๊อกทั้งหมด'} (เว้นว่าง = ตรวจสอบ)<input id="fStock" type="number" value="${record.stock === '' ? '' : html(record.stock)}"></label><label>จำนวนที่กันไว้<input id="fReservedStock" type="number" min="0" value="${html(record.reservedStock || 0)}"></label><label>แจ้งเตือนใกล้หมด<input id="fLowStockAlert" type="number" min="0" value="${html(record.lowStockAlert || 0)}"></label><label>ต้นทุนต่อหน่วย<input id="fCostPrice" type="number" step="0.01" min="0" value="${html(record.costPrice || '')}"></label><label>ลำดับแสดง<input id="fSort" type="number" value="${html(record.sortOrder || 10)}"></label><label>ป้ายสินค้า<input id="fBadge" value="${html(record.badge || '')}" placeholder="HOT / NEW / SALE"></label><label>แท็กค้นหา<input id="fTags" value="${html(record.tags || '')}" placeholder="PVP|ขายดี|ดิจิมอน X"></label><label class="full">คำค้นเพิ่มเติม<input id="fSearchKeywords" value="${html(record.searchKeywords || '')}" placeholder="คำสะกดอื่นหรือคำที่ลูกค้ามักใช้"></label><label class="full">หมายเหตุ<input id="fNote" value="${html(record.note || '')}"></label>${seal ? '' : `<label class="full">รายละเอียด<textarea id="fDescription">${html(record.description || '')}</textarea></label>`}<label class="full">URL รูป<input id="fImageUrl" value="${html(record.imageUrl || '')}" placeholder="วาง URL เดิมได้ตามปกติ"></label><div class="full admin-image-editor"><div class="admin-image-preview ${imagePreview?'has-image':''}" id="recordImagePreviewWrap">${imagePreview?`<img id="recordImagePreview" src="${html(imagePreview)}" alt="ตัวอย่างรูปสินค้า">`:'<span id="recordImagePreviewEmpty">ยังไม่มีรูปสินค้า</span>'}</div><div><label class="file-picker">เลือก/เปลี่ยนรูปจากเครื่อง<input id="fImageFile" type="file" accept="image/png,image/jpeg,image/webp,image/gif"></label><div class="chip-row"><button class="btn small" id="removeRecordImageBtn" type="button">นำรูปออก</button></div><small id="recordImageStatus">รองรับ PNG, JPG, WEBP, GIF • ระบบจะย่อรูปใหญ่ให้อัตโนมัติ</small></div></div></div><div class="chip-row" style="margin-top:14px">${seal ? '<button class="btn warning" id="wikiGalleryBtn">🖼 เลือกรูป Seal Master</button><button class="btn primary" id="wikiCenterRecordBtn">📚 ค้นหน้าข้อมูล DMO Wiki</button>' : ''}<button class="btn success" id="saveRecordBtn">บันทึก</button><button class="btn" id="closeModalBtn">ยกเลิก</button></div></div></div>`;
 }
 
 function wikiGalleryModal() {
@@ -1632,6 +1703,7 @@ async function saveRecordAction() {
       record.category = document.getElementById('fCategory').value;
       record.section = document.getElementById('fSection').value;
       record.packSize = Number(document.getElementById('fPackSize').value) || 1000;
+      record.allowSplitSale=document.getElementById('fAllowSplitSale').checked?'TRUE':'FALSE';
       record.wikiName = document.getElementById('fWikiName').value.trim();
       record.wikiTitle = document.getElementById('fWikiTitle').value.trim();
       record.wikiUrl = document.getElementById('fWikiUrl').value.trim();
@@ -1805,6 +1877,7 @@ async function saveSettingsAction() {
   const tokenAtStart=state.adminToken,prepared=state.servicePosterUpload,form=app;
   try {
     const settings = {
+      ...(document.querySelector('[data-set-editor]')?{sealSetsJson:JSON.stringify(sealSetSettingsFromForm())}:{}),
       shopName: document.getElementById('setShopName').value.trim(),
       ownerName: document.getElementById('setOwnerName').value.trim(),
       themeDefault: document.getElementById('setThemeDefault').value==='LIGHT'?'LIGHT':'DARK',
@@ -1828,6 +1901,7 @@ async function saveSettingsAction() {
       orderNotice: document.getElementById('setNotice').value,
       websiteIntroText: document.getElementById('setWebsiteIntro').value,
       websiteAnnouncement: document.getElementById('setWebsiteAnnouncement').value,
+      ...Object.fromEntries(Array.from(document.querySelectorAll('[data-budget-setting]')).map(el=>[el.dataset.budgetSetting,el.value])),
       websitePromotionText: document.getElementById('setWebsitePromotionText').value,
       websiteImportantNotice: document.getElementById('setWebsiteImportantNotice').value,
       orderCopyTemplate: document.getElementById('setOrderCopyTemplate').value,
@@ -1889,7 +1963,7 @@ async function adjustStockAction(kind, id, delta) {
   const reason = prompt(`เหตุผลในการ${delta >= 0 ? 'เพิ่ม' : 'ลด'}สต๊อก ${product.name}`, delta >= 0 ? 'เติมของเข้า' : 'ขาย/นำออก');
   if (reason === null) return;
   if(!String(reason).trim())return toast('กรุณาระบุเหตุผล');
-  if(!confirm(`ยืนยัน${delta>=0?'เพิ่ม':'ลด'} ${product.name} ${Math.abs(delta).toLocaleString('th-TH')} ${product.unit||'ชิ้น'}?`))return;
+  if(!confirm(`ยืนยัน${delta>=0?'เพิ่ม':'ลด'} ${product.name} ${Math.abs(delta).toLocaleString('th-TH')} ${product.kind==='SEAL'&&product.stockUnit==='LEAF'?'ใบ':product.unit||'ชิ้น'}?`))return;
   const fingerprint=`ADJUST|${kind}|${id}|${delta}|${String(reason).trim()}`,requestId=state.stockPendingRequests[fingerprint]||(state.stockPendingRequests[fingerprint]=crypto.randomUUID?crypto.randomUUID():`${Date.now()}-${Math.random().toString(16).slice(2)}`);
   try {
     state.stockActionPending=fingerprint;state.stockActionResult={message:'กำลังอัปเดต Stock กรุณารอสักครู่...',detail:product.name};render();
@@ -1904,7 +1978,7 @@ async function setStockAction(kind, id) {
   if(state.stockActionPending)return;
   const product = (kind === 'SEAL' ? state.adminData.seals : kind==='TMONEY'?[state.adminData.moneyT]:state.adminData.gameItems).find((entry) => entry&&entry.id === id);
   if (!product) return;
-  const stockTextValue = prompt(`กำหนดสต๊อกทั้งหมดของ ${product.name}\nเว้นว่าง = ต้องตรวจสอบสต๊อก`, product.stock === '' ? '' : product.stock);
+  const stockTextValue = prompt(`กำหนดสต๊อกทั้งหมดของ ${product.name} (${product.kind==='SEAL'&&product.stockUnit==='LEAF'?'ใบ':product.unit||'ชิ้น'})\nเว้นว่าง = ต้องตรวจสอบสต๊อก`, product.stock === '' ? '' : product.stock);
   if (stockTextValue === null) return;
   const reservedText = prompt('จำนวนที่กันไว้', product.reservedStock || 0);
   if (reservedText === null) return;
@@ -2007,6 +2081,21 @@ async function submitAdminLogin() {
 }
 
 function bind() {
+  const budgetSend=document.getElementById('sealBudgetSend');
+  if(budgetSend)budgetSend.onclick=async()=>{
+    const input=document.getElementById('sealBudget'),budget=Number(input.value);
+    if(!input.value||!Number.isSafeInteger(budget)||budget<1||budget>10000000){toast('กรุณากรอกงบเป็นจำนวนบาทเต็ม มากกว่า 0');input.focus();return;}
+    const url=safeExternalUrl(cfg.messengerUrl||state.settings.messengerUrl);
+    if(!url){toast('ยังไม่ได้ตั้งค่าลิงก์ Messenger ของร้าน');return;}
+    const text=configuredSettingText(state.settings,'sealBudgetTemplate','สวัสดีครับ/ค่ะ อยากให้ร้านช่วยจัดซีลตามงบ {budget} บาท').replace(/\{budget\}/g,money(budget));
+    const output=document.getElementById('sealBudgetMessage');output.value=text;output.hidden=false;
+    const chat=window.open(url,'_blank','noopener,noreferrer');
+    try{await copyText(text,'คัดลอกแล้ว กรุณาวางข้อความและกดส่งใน Messenger');}catch(error){output.focus();output.select();toast('คัดลอกอัตโนมัติไม่ได้ กรุณาคัดลอกข้อความในช่องนี้แล้ววางใน Messenger');}
+  };
+  document.querySelectorAll('[data-cart-qty]').forEach(input=>input.onchange=()=>changeCartQuantity(input.dataset.cartQty,input.value));
+  document.querySelectorAll('[data-cart-set-qty]').forEach(input=>input.onchange=()=>changeCartSetQuantity(input.dataset.cartSetQty,input.value));
+  document.querySelectorAll('[data-remove-set]').forEach(button=>button.onclick=()=>changeCartSetQuantity(button.dataset.removeSet,0));
+  document.querySelectorAll('[data-add-set]').forEach(button=>button.onclick=()=>addSealSet(button.dataset.addSet,document.querySelector(`[data-set-qty="${CSS.escape(button.dataset.addSet)}"]`)?.value));
   document.querySelectorAll('[data-type]').forEach((button) => button.onclick = () => { state.catalogType = button.dataset.type; state.wishlistOnly=false; state.search = ''; state.selectedSearchKey = '';state.section='ALL';state.catalogVisible=60; render(); });
   const favoritesBtn=document.getElementById('favoritesBtn');if(favoritesBtn)favoritesBtn.onclick=()=>{state.wishlistOnly=!state.wishlistOnly;state.catalogVisible=60;render();};
   const repeatLatestBtn=document.getElementById('repeatLatestBtn');if(repeatLatestBtn)repeatLatestBtn.onclick=()=>repeatOrder(state.recentOrders[0]);
@@ -2014,7 +2103,7 @@ function bind() {
   document.querySelectorAll('[data-favorite]').forEach((button)=>button.onclick=()=>{const [kind,id]=button.dataset.favorite.split('|');const p=allProducts().find((x)=>x.kind===kind&&x.id===id);if(p)toggleFavorite(p);});
   document.querySelectorAll('[data-cat]').forEach((button) => button.onclick = () => { state.category = button.dataset.cat; state.selectedSearchKey = '';state.catalogVisible=60; render(); });
   document.querySelectorAll('[data-sec]').forEach((button) => button.onclick = () => { state.section = button.dataset.sec; state.selectedSearchKey = '';state.catalogVisible=60; render(); });
-  const refresh = document.getElementById('refreshBtn'); if (refresh) refresh.onclick = () => loadData(true);
+  const refresh = document.getElementById('refreshBtn'); if (refresh) refresh.onclick = async () => {if(state.manualRefreshing)return;state.manualRefreshing=true;state.manualRefreshMessage='';renderPreservingScroll();try{await loadData(false);state.manualRefreshMessage=state.publicRefreshError?'โหลดไม่สำเร็จ • ยังใช้ข้อมูลเดิม':`✓ โหลดล่าสุดแล้ว ${new Date().toLocaleTimeString('th-TH')}`;}catch(error){state.manualRefreshMessage='โหลดไม่สำเร็จ • ลองอีกครั้ง';}finally{state.manualRefreshing=false;renderPreservingScroll();}};
   const search = document.getElementById('searchInput'); if (search) { search.oninput = (event) => { state.search = event.target.value; state.selectedSearchKey = '';state.catalogVisible=60; scheduleInputRender('searchInput', 120); }; search.onkeydown = (event) => { if (event.key === 'Enter') { clearTimeout(inputRenderTimer); state.selectedSearchKey = ''; rememberSearch(state.search); render(); } }; }
   const searchClear = document.getElementById('searchClearBtn'); if (searchClear) searchClear.onclick = () => { state.search = ''; state.selectedSearchKey = '';state.catalogVisible=60; render(); };
   const catalogSort=document.getElementById('catalogSort');if(catalogSort)catalogSort.onchange=()=>{state.catalogSort=['DEFAULT','NAME','PRICE_ASC','PRICE_DESC'].includes(catalogSort.value)?catalogSort.value:'DEFAULT';state.catalogVisible=60;renderPreservingScroll();};
@@ -2025,11 +2114,12 @@ function bind() {
   const loadMoreProductsBtn=document.getElementById('loadMoreProductsBtn');if(loadMoreProductsBtn)loadMoreProductsBtn.onclick=()=>{state.catalogVisible+=60;render();};
   const emptyResetBtn=document.getElementById('emptyResetBtn');if(emptyResetBtn)emptyResetBtn.onclick=()=>{state.search='';state.selectedSearchKey='';state.category='ALL';state.section='ALL';state.availableOnly=false;state.catalogVisible=60;render();};
   document.querySelectorAll('[data-add]').forEach((button) => button.onclick = () => { const quantity = document.querySelector(`[data-qty="${CSS.escape(button.dataset.add)}"]`); addToCart(button.dataset.add, quantity && quantity.value); });
+  document.querySelectorAll('[data-add-thousand]').forEach(button=>button.onclick=()=>{const product=allProducts().find(p=>p.id===button.dataset.addThousand);if(product?.kind==='SEAL'&&saleUnit(product)==='ใบ')addToCart(product.id,1000);});
   document.querySelectorAll('[data-inc]').forEach((button) => button.onclick = () => { const item = state.cart.find((entry) => entry.id === button.dataset.inc); const product=item&&allProducts().find((entry)=>entry.id===item.id&&entry.kind===item.kind); if(item&&product){if(item.quantity>=productMaxQty(product))toast(stockLimitMessage(product));else item.quantity+=1;} renderPreservingScroll(); });
   document.querySelectorAll('[data-dec]').forEach((button) => button.onclick = () => { const item = state.cart.find((entry) => entry.id === button.dataset.dec); if (item) { item.quantity -= 1; if (item.quantity <= 0) state.cart = state.cart.filter((entry) => entry.id !== item.id); } renderPreservingScroll(); });
-  document.querySelectorAll('[data-remove]').forEach((button) => button.onclick = () => { state.cart = state.cart.filter((entry) => entry.id !== button.dataset.remove); renderPreservingScroll(); });
+  document.querySelectorAll('[data-remove]').forEach((button) => button.onclick = () => { const displayed=compactCartEntries().find(entry=>!entry.groupKey&&entry.id===button.dataset.remove),item=state.cart.find(entry=>entry.id===button.dataset.remove);if(displayed&&item)item.quantity-=displayed.quantity;state.cart=state.cart.filter(entry=>entry.quantity>0);state.copyNotice='';renderPreservingScroll(); });
   ['tamer', 'contact'].forEach((id) => { const input = document.getElementById(id); if (input) input.oninput = (event) => { state.customer[id] = event.target.value; }; });
-  const clear = document.getElementById('clearCartBtn'); if (clear) clear.onclick = () => { state.cart = []; renderPreservingScroll(); };
+  const clear = document.getElementById('clearCartBtn'); if (clear) clear.onclick = () => { state.cart = [];state.cartSetGroups=[];state.copyNotice='';renderPreservingScroll(); };
   const copy = document.getElementById('copyOnlyBtn'); if (copy) copy.onclick = async () => {if(copy.disabled)return;copy.disabled=true;try{saveRecentOrderSnapshot();await copyText(orderText(customerValues()),'คัดลอกแล้ว นำรายการไปวางในแชต Facebook ของร้านได้เลย');state.copyNotice='คัดลอกแล้ว นำรายการไปวางในแชต Facebook ของร้านได้เลย';render();}catch(error){toast('คัดลอกไม่สำเร็จ กรุณาลองใหม่');}finally{if(copy.isConnected)copy.disabled=false;}};
   const favoriteCart=document.getElementById('favoriteCartBtn');if(favoriteCart)favoriteCart.onclick=()=>{state.cart.forEach((item)=>{const p=allProducts().find((x)=>x.id===item.id&&x.kind===item.kind);if(p&&!isFavorite(p))state.favoriteKeys.push(productKey(p));});state.favoriteKeys=[...new Set(state.favoriteKeys)].slice(0,300);localStorage.setItem('dmo_favorites',JSON.stringify(state.favoriteKeys));toast('บันทึกรายการโปรดแล้ว');render();};
   const saveOrder = document.getElementById('saveOrderBtn'); if (saveOrder) saveOrder.onclick = async () => { if(state.orderSubmitting)return;try { const remaining=Math.ceil((state.orderCooldownUntil-Date.now())/1000);if(remaining>0)throw Error(`กรุณารอ ${remaining} วินาทีก่อนส่งออเดอร์ใหม่`);const customer = customerValues(); if(!customer.tamer.trim()) throw Error('กรุณากรอกชื่อเทมเมอร์'); if(!customer.contact.trim()) throw Error('กรุณากรอกชื่อ Facebook'); if(!state.cart.length) throw Error('ยังไม่มีสินค้าในรายการ');const fingerprint=JSON.stringify({customer,items:state.cart.map(x=>({id:x.id,kind:x.kind,quantity:x.quantity}))});if(state.pendingOrderFingerprint!==fingerprint){state.pendingOrderFingerprint=fingerprint;state.pendingOrderRequestId=(crypto.randomUUID?crypto.randomUUID():`${Date.now()}-${Math.random().toString(16).slice(2)}`);}const website=document.getElementById('orderWebsite')?.value||'';state.orderSubmitting=true;render();const data = await apiPost({ action: 'createOrder', requestId:state.pendingOrderRequestId, customer, items: state.cart, website, startedAt:state.orderFormStartedAt }); if(!data.orderId) throw Error('ระบบยังไม่เปิดรับออเดอร์ กรุณาติดต่อร้าน'); saveRecentOrderSnapshot(data.orderId); state.orderSuccess={orderId:data.orderId,total:Number(data.total||0),discount:Number(data.discount||0)};const cooldown=Math.max(5,Math.min(120,Number(state.settings.orderSubmitCooldownSeconds)||30));state.orderCooldownUntil=Date.now()+cooldown*1000;localStorage.setItem('dmo_order_cooldown_until',String(state.orderCooldownUntil));state.orderFormStartedAt=Date.now();state.cart=[];state.pendingOrderRequestId='';state.pendingOrderFingerprint='';state.orderSubmitting=false;render();setTimeout(()=>{if(state.page==='shop')render();},cooldown*1000+100);window.scrollTo({top:0,behavior:'smooth'}); } catch (error) { state.orderSubmitting=false;render();toast(error.message); } };
@@ -2062,7 +2152,7 @@ function bind() {
   const fbDisconnectWorkerBtn=document.getElementById('fbDisconnectWorkerBtn');if(fbDisconnectWorkerBtn)fbDisconnectWorkerBtn.onclick=()=>facebookWorkerAction('WORKER_DISCONNECT','/disconnect',{},'ตัดการเชื่อมต่อ Worker แล้ว');
   const fbSaveSettingsBtn=document.getElementById('fbSaveSettingsBtn');if(fbSaveSettingsBtn)fbSaveSettingsBtn.onclick=saveFacebookBumpSettingsFromForm;
   const runIntegrityBtn=document.getElementById('runIntegrityBtn');if(runIntegrityBtn)runIntegrityBtn.onclick=async()=>{try{runIntegrityBtn.disabled=true;runIntegrityBtn.textContent='กำลังตรวจ...';const data=await apiPost({action:'runIntegrityCheck',token:state.adminToken});state.integrityReport=data.integrity||null;render();}catch(e){toast(e.message);render();}};
-  document.querySelectorAll('[data-new]').forEach((button) => button.onclick = () => { const kind = button.dataset.new; state.editRecord = { kind, status: 'ACTIVE', category: 'AT', section: kind==='SEAL'?(subcategoriesFor('SEAL')[0]?.value||''):'', itemCategory:kind==='ITEM'?(subcategoriesFor('ITEM')[0]?.value||''):'', serviceCategory:kind==='SERVICE'?(subcategoriesFor('SERVICE')[0]?.value||''):'', unit: kind === 'SEAL' ? 'ชุด' : kind === 'SERVICE' ? 'ครั้ง' : 'ชิ้น', packSize: 1000, sortOrder: 10, stock: '', reservedStock: 0, lowStockAlert: 0, costPrice: '' };state.recordImageUpload=null;state.modalDirty.record=false; render(); });
+  document.querySelectorAll('[data-new]').forEach((button) => button.onclick = () => { const kind = button.dataset.new; state.editRecord = { kind, stockUnit:kind==='SEAL'?'LEAF':'', allowSplitSale:'FALSE', status: 'ACTIVE', category: 'AT', section: kind==='SEAL'?(subcategoriesFor('SEAL')[0]?.value||''):'', itemCategory:kind==='ITEM'?(subcategoriesFor('ITEM')[0]?.value||''):'', serviceCategory:kind==='SERVICE'?(subcategoriesFor('SERVICE')[0]?.value||''):'', unit: kind === 'SEAL' ? 'ชุด' : kind === 'SERVICE' ? 'ครั้ง' : 'ชิ้น', packSize: 1000, sortOrder: 10, stock: '', reservedStock: 0, lowStockAlert: 0, costPrice: '' };state.recordImageUpload=null;state.modalDirty.record=false; render(); });
   document.querySelectorAll('[data-edit]').forEach((button) => button.onclick = () => { const [kind, id] = button.dataset.edit.split('|'); const list = kind === 'SEAL' ? state.adminData.seals : kind === 'SERVICE' ? state.adminData.services : kind === 'TMONEY' ? [state.adminData.moneyT] : state.adminData.gameItems; state.editRecord = { ...list.find((entry) => entry&&entry.id === id) };state.recordImageUpload=null;state.modalDirty.record=false; render(); });
   document.querySelectorAll('[data-delete]').forEach((button) => button.onclick = async () => { const [kind, id] = button.dataset.delete.split('|'); if (!confirm('ย้ายรายการนี้ลงถังขยะ?')) return; try { await apiPost({ action: 'softDelete', token: state.adminToken, kind, id }); state.adminSelected=state.adminSelected.filter((x)=>x!==`${kind}|${id}`); toast('ย้ายลงถังขยะแล้ว'); await loadAdmin(); state.publicLoadedAt=0; } catch (error) { toast(error.message); } });
   const adminSearch = document.getElementById('adminSearch'); if (adminSearch) adminSearch.oninput = (event) => document.querySelectorAll('[data-admin-name]').forEach((el) => { el.style.display = el.dataset.adminName.includes(norm(event.target.value)) ? '' : 'none'; });

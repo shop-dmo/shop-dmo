@@ -169,7 +169,7 @@ test('pair bridge supports old and proposed origins without wildcarding',()=>{
 
 test('order calculation and snapshot source of truth remain intact',()=>{
   assert(gas.includes('function calculateServerPricing(')&&gas.includes('pricingJson:JSON.stringify(pricing)'),'server pricing snapshot is missing');
-  assert(gas.includes("const raw=Array.isArray(b.items)?b.items:[]")&&gas.includes('const catalog=catalogSnapshot(),normalized=[]')&&gas.includes('const price=Math.max(0,number(p.price))'),'server no longer rebuilds item prices');
+  assert(gas.includes("const raw=Array.isArray(b.items)?b.items:[]")&&gas.includes('const catalog=catalogSnapshot(),normalized=[]')&&gas.includes('const price=Math.max(0,sale?sale.price:number(p.price))')&&gas.includes("sale=found.kind==='SEAL'?sealSalesModel(p):null"),'server no longer rebuilds item prices');
 });
 
 if(!process.exitCode)console.log(`TOTAL ${pass}/${pass} PASS`);

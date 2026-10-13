@@ -209,6 +209,7 @@ check('31. Category discount settings UI and additive migration', () => {
   const settingsSource=app.slice(app.indexOf('function adminSettingsBase'),app.indexOf('function adminLogs'));
   const settingsContext={state:{adminData:{settings:{categoryDiscountSealPercent:5,categoryDiscountItemPercent:10,categoryDiscountServicePercent:0},security:{actor:{role:'OWNER'}}},servicePosterUpload:null},shopIdentity:()=>({shopName:'',ownerName:''}),configuredSettingText:(settings,key,fallback)=>Object.prototype.hasOwnProperty.call(settings,key)?String(settings[key]??''):fallback,settingEnabled:(settings,key,fallback=true)=>Object.prototype.hasOwnProperty.call(settings,key)?settings[key]!==false&&String(settings[key]).toUpperCase()!=='FALSE':fallback,safeExternalUrl:value=>String(value||''),themePalette:()=>({primary:'#2588E8',accent:'#15B7D7',background:'#061121',button:'#0B1C34',important:'#45DEF2'}),DEFAULT_ORDER_COPY_TEMPLATE:'{title}\n{items}\n{pricing}\n{promotions}\n{customer}\n{notice}',html:value=>String(value),String};
   vm.createContext(settingsContext);
+  settingsContext.sealSetOffers=()=>[];settingsContext.state.seals=[];
   new vm.Script(`${settingsSource};globalThis.__settingsHtml=adminSettings();`).runInContext(settingsContext);
   ['setCategoryDiscountSeal','setCategoryDiscountItem','setCategoryDiscountService'].forEach(id=>assert(settingsContext.__settingsHtml.includes(`id="${id}"`),`ฟอร์มขาด ${id}`));
   assert((settingsContext.__settingsHtml.match(/id="saveSettingsBtn"/g)||[]).length===1,'ปุ่มบันทึก Settings ต้องมีหนึ่งปุ่ม');

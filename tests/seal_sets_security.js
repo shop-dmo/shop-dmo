@@ -1,0 +1,12 @@
+'use strict';
+const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm'),path=require('node:path');
+const c={console,Map,Set};vm.createContext(c);vm.runInContext(fs.readFileSync(path.join(__dirname,'../GoogleAppsScript.gs'),'utf8'),c);
+c.existingRows=()=>[{id:'AT-1',name:'A',category:'AT',section:'NORMAL',unit:'ชุด',packSize:1000,price:10,status:'ACTIVE',stock:10},{id:'HT-1',name:'B',category:'HT',section:'NORMAL',unit:'ชุด',packSize:1000,price:20,status:'ACTIVE',stock:10}];
+const row={id:'seal-set-AT-1',name:'AT Starter',category:'AT',multiplier:1,enabled:true,imageUrl:'',memberIds:['AT-1']};
+const normalize=value=>c.normalizeSealSets(JSON.stringify(value));
+assert.equal(normalize([row])[0].memberIds[0],'AT-1');
+for(const change of [{memberIds:['HT-1']},{memberIds:['missing']},{multiplier:0},{imageUrl:'javascript:alert(1)'},{memberIds:[]},{category:'INVALID'}])assert.throws(()=>normalize([{...row,...change}]));
+assert.throws(()=>normalize([row,row]));
+assert.equal(normalize([{...row,passwordHash:'PRIVATE',price:1}])[0].passwordHash,undefined);
+assert.equal(normalize([{...row,price:1}])[0].price,undefined);
+console.log('PASS backend set validation: account roles remain guarded, matching categories, known products, quantity, HTTPS images, dedupe and private-field stripping');

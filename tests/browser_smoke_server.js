@@ -35,6 +35,28 @@ const gameItems=[{id:'I-1',name:'ไอเทมทดสอบ',itemCategory:'E
 const services=[{id:'V-1',name:'บริการทดสอบ',serviceCategory:'DUNGEON',description:'ใช้ตรวจหน้าจอเท่านั้น',price:300,unit:'ครั้ง',status:'ACTIVE',availableStock:999,sortOrder:1}];
 for(const [rows,kind] of [[seals,'SEAL'],[gameItems,'ITEM'],[services,'SERVICE']])for(const row of rows)row.kind=kind;
 const publicData={ok:true,seals,gameItems,services,moneyT:null,promotions:[],settings,stockUpdatedAt:new Date().toISOString()};
+let leafPreviewBackend=null;
+// Opt-in preview of anonymous public catalog only. All write endpoints remain local.
+if(process.env.DMO_PREVIEW_PUBLIC_SEALS==='1'){
+  const vm=require('node:vm'),context={window:{}};vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../config.js'),'utf8'),context);
+  fetch(context.window.DMO_CONFIG.sheetsUrl).then(response=>{if(!response.ok)throw Error('Public catalog unavailable');return response.json();}).then(data=>{
+    if(!data.ok||!Array.isArray(data.seals))throw Error('Invalid public catalog');
+    const fields=['id','name','kind','category','section','price','unit','packSize','status','availableStock','sortOrder','imageUrl','allowSplitSale','stockUnit','availableLeaves','packPrice'];
+    seals.splice(0,seals.length,...data.seals.map(p=>Object.fromEntries(fields.filter(k=>Object.hasOwn(p,k)).map(k=>[k,p[k]]))));
+    if(process.env.DMO_PREVIEW_LEAF_SALES==='1'){
+      const limits={AT:11,HT:9,CT:9,HP:13,DS:13,DE:14,EV:9,BL:6},selected=Object.keys(limits).flatMap(category=>seals.filter(p=>p.category===category&&p.section==='NORMAL'&&Number(p.packSize)===1000&&Number(p.price)>0&&!['OUT_OF_STOCK','INACTIVE','HIDDEN','CHECK_STOCK'].includes(p.status)&&Number(p.availableStock)>0).sort((a,b)=>Number(a.packPrice??a.price)-Number(b.packPrice??b.price)||String(a.name).localeCompare(String(b.name),'th')).slice(0,limits[category]).map(p=>p.id));
+      const backend={console,Map,Set};vm.createContext(backend);vm.runInContext(fs.readFileSync(path.join(__dirname,'../GoogleAppsScript.gs'),'utf8'),backend);
+      const records=seals.map(p=>({...p,stock:p.stockUnit==='LEAF'?(p.availableLeaves??''):(p.availableStock??''),reservedStock:0,lowStockAlert:0,allowSplitSale:'',stockUnit:p.stockUnit==='LEAF'?'LEAF':'',price:p.unit==='ใบ'?p.price:(p.packPrice??p.price)}));
+      seals.splice(0,seals.length,...backend.planSealLeafRows(records,selected));
+      publicData.seals=seals.map(p=>backend.publicProduct(backend.normalizeSeal(p)));
+      leafPreviewBackend=require('./mock_seal_sheet_backend')(seals,settings,publicData);
+      console.log(`Leaf-sales preview enabled: ${selected.length} set seals; local only`);
+    }
+    settings.categoryDiscountSealPercent=data.settings?.categoryDiscountSealPercent??0;
+    settings.shopName='SHOP DMO — ตัวอย่างเซ็ตซีล';settings.websiteIntroText='ตัวอย่างก่อน Deploy · ราคาอ้างอิงหน้าร้าน';
+    console.log(`Public seal preview loaded: ${seals.length} products`);
+  }).catch(()=>console.error('Public seal preview could not load; fixture retained'));
+}
 // Public contact links only; fixture API remains local and read-only.
 settings.facebookUrl='https://www.facebook.com/kreangkrai.namkeaw/';
 settings.messengerUrl='https://m.me/kreangkrai.namkeaw';
@@ -49,7 +71,7 @@ http.createServer((req,res)=>{
   if(requestPath==='/__smoke_metrics'&&req.method==='GET')return sendJson(res,{fixture:true,requests});
   if(requestPath==='/api'){
     if(req.method==='GET'){countRequest('publicCatalog');return sendJson(res,publicData);}
-    let body='';req.on('data',chunk=>body+=chunk);req.on('end',()=>{let payload={};try{payload=JSON.parse(body||'{}');}catch(error){}const knownActions=['login','getAdminData','logout','saveSettings'];const knownScopes=['dashboard','catalog','images','inventory','calculator','categories','settings','orders','customers','promotions','analytics','reports','security','integrity','automation','logs','trash','wiki'];countRequest(knownActions.includes(payload.action)?payload.action+(payload.action==='getAdminData'?':'+(knownScopes.includes(payload.scope)?payload.scope:'other'):''):'other');if(payload.action==='login')return sendJson(res,{ok:true,token:'LOCAL-SMOKE-TOKEN',user:{userId:'LOCAL-SMOKE',displayName:'Local smoke test',role:'OWNER',status:'ACTIVE'}});if(payload.action==='getAdminData'){const reply=()=>sendJson(res,adminData(String(payload.scope||'dashboard')));return adminDelayMs?setTimeout(reply,adminDelayMs):reply();}if(payload.action==='logout'||payload.action==='saveSettings')return sendJson(res,{ok:true});sendJson(res,{ok:false,error:'LOCAL_SMOKE_READ_ONLY'});});return;
+    let body='';req.on('data',chunk=>body+=chunk);req.on('end',()=>{let payload={};try{payload=JSON.parse(body||'{}');}catch(error){}const knownActions=['login','getAdminData','logout','saveSettings'];const knownScopes=['dashboard','catalog','images','inventory','calculator','categories','settings','orders','customers','promotions','analytics','reports','security','integrity','automation','logs','trash','wiki'];countRequest(knownActions.includes(payload.action)?payload.action+(payload.action==='getAdminData'?':'+(knownScopes.includes(payload.scope)?payload.scope:'other'):''):'other');if(payload.action==='login')return sendJson(res,{ok:true,token:'LOCAL-SMOKE-TOKEN',user:{userId:'LOCAL-SMOKE',displayName:'Local smoke test',role:'OWNER',status:'ACTIVE'}});if(payload.action==='getAdminData'){const reply=()=>sendJson(res,adminData(String(payload.scope||'dashboard')));return adminDelayMs?setTimeout(reply,adminDelayMs):reply();}if(leafPreviewBackend&&['upsert','saveSettings'].includes(payload.action)){if(payload.token!=='LOCAL-SMOKE-TOKEN')return sendJson(res,{ok:false,error:'LOCAL_AUTH_REQUIRED'});try{return sendJson(res,payload.action==='upsert'?leafPreviewBackend.upsert(payload.record):leafPreviewBackend.saveSettings(payload.settings));}catch(error){return sendJson(res,{ok:false,error:String(error.message)});}}if(payload.action==='logout'||payload.action==='saveSettings')return sendJson(res,{ok:true});sendJson(res,{ok:false,error:'LOCAL_SMOKE_READ_ONLY'});});return;
   }
   if(requestPath==='/config.js'){res.writeHead(200,{'Content-Type':'text/javascript;charset=utf-8','Cache-Control':'no-store'});return res.end(`window.DMO_CONFIG=${JSON.stringify({sheetsUrl:`http://127.0.0.1:${port}${basePath}/api`,simpleAdmin:true,productImages:imageAssets.productImages,sealImageMatches:imageAssets.sealImageMatches,refreshMs:600000,appVersion:'LOCAL-SMOKE'})};`);}
   const relativeFile=requestPath==='/'?'index.html':requestPath.slice(1);
