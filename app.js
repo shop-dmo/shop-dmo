@@ -52,7 +52,7 @@ const state = {
   category: 'ALL',
   section: 'ALL',
   search: '',
-  catalogSort: 'DEFAULT',
+  catalogSort: 'PRICE_DESC',
   availableOnly: false,
   selectedSearchKey: '',
   seals: [],
@@ -285,7 +285,9 @@ function bindModalDirty(backdropId,kind){const modal=document.getElementById(bac
 function closeStateModal(kind){if(kind==='record'&&state.recordSaving){toast('กำลังบันทึกสินค้า กรุณารอสักครู่');return false;}if(kind!=='wiki'&&state.modalDirty[kind]&&!confirm('มีข้อมูลที่แก้ไขแล้วยังไม่ได้บันทึก ต้องการปิดโดยไม่บันทึกหรือไม่?'))return false;if(kind==='record'){state.editRecord=null;state.recordImageUpload=null;state.imagePreparing.record=null;}else if(kind==='promo')state.promoEdit=null;else if(kind==='category')state.categoryEdit=null;else if(kind==='wiki')state.wikiGallery=null;if(kind!=='wiki')state.modalDirty[kind]=false;render();return true;}
 const safeExternalUrl=(value)=>{try{const url=new URL(String(value||''));return ['https:','http:'].includes(url.protocol)?url.toString():'';}catch(error){return'';}};
 const isVisible = (p) => !['HIDDEN', 'INACTIVE'].includes(String(p.status || 'ACTIVE'));
-const availableStock = (p) => p.availableStock !== undefined ? p.availableStock : (p.stock === '' ? '' : Math.max(0, Number(p.stock || 0) - Number(p.reservedStock || 0)));
+// Services are appointments, not inventory. Keep stored stock intact but do not
+// use it to limit selections (the server already excludes SERVICE stock actions).
+const availableStock = (p) => p.kind === 'SERVICE' ? '' : p.availableStock !== undefined ? p.availableStock : (p.stock === '' ? '' : Math.max(0, Number(p.stock || 0) - Number(p.reservedStock || 0)));
 const canBuy = (p) => isVisible(p) && String(p.status) !== 'OUT_OF_STOCK' && !(availableStock(p) !== '' && availableStock(p) <= 0);
 const productMaxQty = (p) => {
   const available = availableStock(p);
@@ -545,7 +547,7 @@ function sealSetCard(offer){
   return `<article class="seal-set-card" data-seal-line="${html(offer.category)}">${offer.imageUrl?`<img class="seal-set-image" src="${html(offer.imageUrl)}" alt="${html(offer.name)}" loading="lazy">`:''}<div class="seal-set-heading"><span class="badge">${html(offer.category==='ALL'?'ครบทุกสาย':offer.category)}</span><h3>${html(offer.name)}</h3></div><p>${offer.members.length} ซีล · ตัวละ ${money(offer.multiplier*1000)} ใบ</p><div class="product-price">${money(offer.price)} บาท/เซ็ต</div>${discount?`<small>หลังส่วนลดซีล ${money(discount)}% ประมาณ ${money(net)} บาท</small>`:''}<details><summary>ดูรายชื่อซีลและจำนวนที่จะได้รับ (${offer.members.length})</summary><ol>${offer.members.map(p=>`<li><b>${html(p.name)}</b><span>${money(offer.multiplier*1000)} ใบ · ${money(sealPackPrice(p)*offer.multiplier)} บาท</span></li>`).join('')}</ol></details><div class="product-actions"><input type="number" class="qty-input" min="1" step="1" value="1" data-set-qty="${html(offer.id)}" aria-label="จำนวนเซ็ต ${html(offer.name)}"><button class="btn primary" data-add-set="${html(offer.id)}" ${offer.available?'':'disabled'}>${offer.available?'+ เพิ่มทั้งเซ็ต':'สต๊อกบางตัวไม่พอ'}</button></div></article>`;
 }
 function sealSetsPage(){
-  const offers=sealSetOffers(),groups=[...SEAL_SET_CATEGORIES,'ALL'].filter(cat=>state.category==='ALL'||cat===state.category),query=state.search.trim().toLocaleLowerCase('th');
+  const offers=sealSetOffers().sort((a,b)=>b.price-a.price||String(a.name).localeCompare(String(b.name),'th')),groups=[...SEAL_SET_CATEGORIES,'ALL'].filter(cat=>state.category==='ALL'||cat===state.category),query=state.search.trim().toLocaleLowerCase('th');
   return `<div class="grid-main"><section class="panel"><h2 class="panel-title">📦 เซ็ตซีลของร้าน</h2><p class="product-meta">เซ็ตเริ่มต้น ตัวละ 1,000 ใบ · เซ็ตชุดใหญ่ ตัวละ 3,000 ใบ<br>คัดซีลเริ่มต้นราคาน้อยไปมากในแต่ละสาย จากซีลปกติชุด 1,000 ใบที่มีสต๊อกยืนยัน ราคาคิดตามร้าน ณ ตอนโหลดข้อมูล กรุณาดูรายชื่อก่อนเพิ่ม</p><div class="chip-row">${['ALL',...SEAL_SET_CATEGORIES].map(cat=>`<button class="filter-chip ${state.category===cat?'active':''}" data-seal-line="${cat}" data-cat="${cat}">${cat==='ALL'?'ทุกสาย':cat}</button>`).join('')}</div><input class="search" id="searchInput" placeholder="ค้นหาชื่อเซ็ตหรือซีลในเซ็ต" value="${html(state.search)}">${groups.map(cat=>{const rows=offers.filter(o=>o.category===cat&&(!query||`${o.name} ${o.members.map(p=>p.name).join(' ')}`.toLocaleLowerCase('th').includes(query)));return rows.length?`<section class="seal-set-group" data-seal-line="${cat}"><h3>${cat==='ALL'?'เซ็ตครบทุกสาย':`ซีลสาย ${cat}`}</h3><div class="seal-set-grid">${rows.map(sealSetCard).join('')}</div></section>`:'';}).join('')||'<div class="empty">ยังไม่มีซีลปกติชุด 1,000 ใบที่มีสต๊อกยืนยันในสายนี้</div>'}</section>${cartPanel()}</div>`;
 }
 function addSealSet(id,quantity){
@@ -565,7 +567,7 @@ function filteredProducts() {
   return catalog().map((product) => ({ product, score: query ? smartSearchScore(product, query) : 1 })).filter(({ product, score }) => {
     if (state.selectedSearchKey && productKey(product) !== state.selectedSearchKey) return false;
     if (state.wishlistOnly && !isFavorite(product)) return false;
-    if (state.availableOnly && (!canBuy(product) || product.status === 'CHECK_STOCK' || availableStock(product) === '' || !Number.isFinite(Number(availableStock(product))) || Number(availableStock(product)) <= 0)) return false;
+    if (state.availableOnly && (!canBuy(product) || (product.kind !== 'SERVICE' && (product.status === 'CHECK_STOCK' || availableStock(product) === '' || !Number.isFinite(Number(availableStock(product))) || Number(availableStock(product)) <= 0)))) return false;
     if (state.catalogType === 'SEAL' && state.category !== 'ALL' && product.category !== state.category) return false;
     if (['SEAL','ITEM','SERVICE'].includes(state.catalogType) && state.section !== 'ALL' && productSubcategoryValue(product) !== state.section) return false;
     return score > 0;
@@ -573,7 +575,13 @@ function filteredProducts() {
     const nameOrder = String(a.product.name).localeCompare(String(b.product.name), 'th');
     if (state.catalogSort === 'NAME') return nameOrder;
     if (['PRICE_ASC', 'PRICE_DESC'].includes(state.catalogSort)) {
-      const price = (p) => p.price !== '' && p.price != null && Number.isFinite(Number(p.price)) ? Number(p.price) : null;
+      // Compare the price shown on each card: normal seals show a pack price,
+      // while split-sale SUSA/BASE_HARD seals show the price per leaf.
+      const price = (p) => {
+        if (p.price === '' || p.price == null || !Number.isFinite(Number(p.price))) return null;
+        const value = p.kind === 'SEAL' && !(['SUSA','BASE_HARD'].includes(String(p.section)) && saleUnit(p) === 'ใบ') ? sealPackPrice(p) : Number(p.price);
+        return Number.isFinite(value) ? value : null;
+      };
       const left = price(a.product), right = price(b.product);
       if (left === null || right === null) return left === right ? nameOrder : left === null ? 1 : -1;
       return (state.catalogSort === 'PRICE_DESC' ? right - left : left - right) || nameOrder;
@@ -586,6 +594,7 @@ function filteredProducts() {
 }
 
 function stockText(product) {
+  if (product.kind === 'SERVICE') return product.status === 'OUT_OF_STOCK' ? 'ปิดรับบริการชั่วคราว' : 'ไม่จำกัดจำนวน • ทักร้านเพื่อนัดหมาย';
   if (product.status === 'CHECK_STOCK') return '⚠️ ต้องตรวจสอบสต๊อก';
   const available = availableStock(product);
   if(product.kind==='SEAL'&&saleUnit(product)==='ชุด'&&available===0&&Number(product.availableLeaves)>0)return `เหลือ ${money(product.availableLeaves)} ใบ • ไม่ครบชุด`;
@@ -657,17 +666,17 @@ function shopPage() {
     <section class="panel">
       ${announcement?`<div class="site-message announcement">📢 ${html(announcement)}</div>`:''}${promotionText?`<div class="site-message promotion">🎁 ${html(promotionText)}</div>`:''}${importantNotice?`<div class="site-message important">⚠️ ${html(importantNotice)}</div>`:''}
       ${state.catalogType==='SEAL'&&!state.wishlistOnly?`<div class="seal-budget-help"><h2>${html(configuredSettingText(state.settings,'sealBudgetTitle','🌟 มือใหม่? ให้ร้านจัดซีลตามงบ'))}</h2><p>${html(configuredSettingText(state.settings,'sealBudgetDescription','ไม่รู้จะเลือกตัวไหน บอกงบแล้วให้ร้านช่วยแนะนำได้เลย'))}</p><div class="seal-budget-controls"><label for="sealBudget">งบประมาณ (บาท)<input id="sealBudget" type="number" min="1" max="10000000" step="1" placeholder="เช่น 500"></label><button class="btn primary" id="sealBudgetSend" type="button">${html(configuredSettingText(state.settings,'sealBudgetButton','💬 คัดลอกและเปิด Messenger'))}</button></div><small>เปิดแชตแล้วกดวางข้อความและส่งให้ร้าน • ยังไม่ใช่การยืนยันซื้อ</small><textarea id="sealBudgetMessage" readonly hidden aria-label="ข้อความขอให้ร้านจัดซีล"></textarea></div>`:''}
-      <div class="shop-heading"><div><h2 class="panel-title">${state.wishlistOnly ? '❤️ รายการโปรด' : state.catalogType === 'SEAL' ? 'รายการซีล' : state.catalogType === 'ITEM' ? 'ไอเทมในเกม' : state.catalogType === 'TMONEY' ? 'เงิน T' : 'บริการของร้าน'}</h2><p class="product-meta">${state.wishlistOnly ? 'รายการโปรดเก็บอยู่ในอุปกรณ์เครื่องนี้' : state.catalogType==='TMONEY'?'กรอกจำนวน T ที่ต้องการ ระบบคำนวณจาก Rate ปัจจุบันและตรวจ Stock จริงอีกครั้งที่ Server':'เลือกจำนวนและเพิ่มลงรายการ จากนั้นส่งให้ร้านตรวจสอบสต๊อก'}</p></div></div>
+      <div class="shop-heading"><div><h2 class="panel-title">${state.wishlistOnly ? '❤️ รายการโปรด' : state.catalogType === 'SEAL' ? 'รายการซีล' : state.catalogType === 'ITEM' ? 'ไอเทมในเกม' : state.catalogType === 'TMONEY' ? 'เงิน T' : 'บริการของร้าน'}</h2><p class="product-meta">${state.wishlistOnly ? 'รายการโปรดเก็บอยู่ในอุปกรณ์เครื่องนี้' : state.catalogType==='TMONEY'?'กรอกจำนวน T ที่ต้องการ ระบบคำนวณจาก Rate ปัจจุบันและตรวจ Stock จริงอีกครั้งที่ Server':state.catalogType==='SERVICE'?'เลือกบริการและจำนวน แล้วทักร้านเพื่อสอบถามหรือนัดหมาย':'เลือกจำนวนและเพิ่มลงรายการ จากนั้นส่งให้ร้านตรวจสอบสต๊อก'}</p></div></div>
       <div class="commerce-flow" aria-label="ขั้นตอนสั่งซื้อ"><b>1 เลือกสินค้า</b><i>→</i><b>2 ตรวจตะกร้า</b><i>→</i><b>3 Copy/ส่งให้ร้าน</b><i>→</i><b>4 ร้านตรวจและจัดของ</b><i>→</i><b>5 เสร็จสิ้น</b></div>
       <div class="filters">
-        <div class="catalog-toolbar"><label for="catalogSort">เรียงสินค้า <select id="catalogSort">${[['DEFAULT','ลำดับของร้าน'],['NAME','ชื่อ ก–ฮ'],['PRICE_ASC','ราคา ต่ำ–สูง'],['PRICE_DESC','ราคา สูง–ต่ำ']].map(([value,label])=>`<option value="${value}" ${state.catalogSort===value?'selected':''}>${label}</option>`).join('')}</select></label><label class="available-filter"><input id="availableOnly" type="checkbox" ${state.availableOnly?'checked':''}> เฉพาะที่มีสต๊อกยืนยัน</label><small>ราคาต่อหน่วย • ร้านตรวจสต๊อกก่อนยืนยัน</small></div>
+        <div class="catalog-toolbar"><label for="catalogSort">เรียงสินค้า <select id="catalogSort">${[['DEFAULT','ลำดับของร้าน'],['NAME','ชื่อ ก–ฮ'],['PRICE_ASC','ราคา ต่ำ–สูง'],['PRICE_DESC','ราคา สูง–ต่ำ']].map(([value,label])=>`<option value="${value}" ${state.catalogSort===value?'selected':''}>${label}</option>`).join('')}</select></label>${state.catalogType==='SERVICE'&&!state.wishlistOnly?'':`<label class="available-filter"><input id="availableOnly" type="checkbox" ${state.availableOnly?'checked':''}> เฉพาะที่มีสต๊อกยืนยัน</label>`}<small>${state.catalogType==='SERVICE'&&!state.wishlistOnly?'ราคาต่อหน่วย • ทักร้านเพื่อยืนยันบริการ':'ราคาต่อหน่วย • ร้านตรวจสต๊อกก่อนยืนยัน'}</small></div>
         <div class="smart-search-wrap"><input class="search" id="searchInput" autocomplete="off" placeholder="ค้นหาชื่อ Alias สาย หรือพิมพ์คลาดเคลื่อนได้..." value="${html(state.search)}">${state.search ? `<button class="search-clear" id="searchClearBtn">×</button>` : ''}${suggestions.length ? `<div class="search-suggestions">${suggestions.map((p)=>`<button data-search-suggestion="${html(p.name)}" data-search-product="${html(productKey(p))}"><b>${html(p.name)}</b><span>${html(productMeta(p))}</span></button>`).join('')}</div>` : ''}</div>
         ${state.recentSearches.length ? `<div class="recent-searches"><span>ค้นหาล่าสุด:</span>${state.recentSearches.map((q)=>`<button data-recent-search="${html(q)}">${html(q)}</button>`).join('')}<button id="clearRecentSearches">ล้าง</button></div>` : ''}
         ${state.catalogType === 'SEAL' ? `<div class="chip-row">${['ALL', 'AT', 'HT', 'CT', 'HP', 'DS', 'DE', 'EV', 'BL'].map((category) => `<button class="filter-chip ${state.category === category ? 'active' : ''}" data-seal-line="${category}" data-cat="${category}">${category === 'ALL' ? 'ทั้งหมด' : category}</button>`).join('')}</div>` : ''}
         ${subcategories.length?`<div class="subcategory-filter" aria-label="เลือกหมวดย่อย"><div class="subcategory-filter-title"><b>หมวดย่อย</b><span>เลือกเพื่อกรองสินค้า</span></div><div class="chip-row subcategory-filter-options"><button class="filter-chip subcategory-chip ${state.section==='ALL'?'active':''}" data-sec="ALL" aria-pressed="${state.section==='ALL'}">ทุกหมวดย่อย</button>${subcategories.map(row=>`<button class="filter-chip subcategory-chip ${state.section===row.value?'active':''}" data-sec="${html(row.value)}" aria-pressed="${state.section===row.value}">${html(row.label)}</button>`).join('')}</div></div>`:''}
       </div>
       ${servicePosterUrl?`<div class="service-poster"><img src="${html(servicePosterUrl)}" alt="โปสเตอร์บริการ" loading="lazy" decoding="async" onerror="this.closest('.service-poster').hidden=true"></div>`:''}
-      <div class="product-meta">พร้อมขาย ${products.filter(p=>canBuy(p)&&p.status!=='CHECK_STOCK'&&availableStock(p)!==''&&Number(availableStock(p))>0).length} จาก ${products.length} รายการที่แสดงตามตัวกรอง</div>
+      <div class="product-meta">พร้อมขาย ${products.filter(p=>canBuy(p)&&(p.kind==='SERVICE'||(p.status!=='CHECK_STOCK'&&availableStock(p)!==''&&Number(availableStock(p))>0))).length} จาก ${products.length} รายการที่แสดงตามตัวกรอง</div>
       <div class="search-summary">พบ ${products.length} รายการ${state.search ? ` สำหรับ “${html(state.search)}”` : ''}${products.length>visibleProducts.length?` • แสดง ${visibleProducts.length} รายการแรก`:''}</div><div class="products">${products.length ? visibleProducts.map(productCard).join('') : '<div class="empty"><b>ไม่พบสินค้า</b><span>ลองตรวจคำสะกด เปลี่ยนหมวด หรือค้นด้วยชื่อเรียกอื่น</span><button class="btn small" id="emptyResetBtn">ล้างการค้นหา</button></div>'}</div>${products.length>visibleProducts.length?`<button class="btn load-more" id="loadMoreProductsBtn">แสดงเพิ่มอีก ${Math.min(60,products.length-visibleProducts.length)} รายการ</button>`:''}
     </section>
     ${cartPanel()}

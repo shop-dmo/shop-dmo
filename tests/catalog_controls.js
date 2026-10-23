@@ -14,13 +14,41 @@ assert.equal(c.splitPriceSubject.sealCardPrice({kind:'SEAL',section:'NORMAL',uni
 console.log('PASS SUSA/BASE_HARD leaf card price; NORMAL and non-split card prices unchanged');
 state.seals=[{id:'a',name:'A',kind:'SEAL',price:20,availableStock:3,status:'ACTIVE',sortOrder:1},{id:'b',name:'B',kind:'SEAL',price:10,availableStock:0,status:'ACTIVE',sortOrder:2},{id:'c',name:'C',kind:'SEAL',price:30,availableStock:'',status:'CHECK_STOCK',sortOrder:3},{id:'d',name:'D',kind:'SEAL',price:null,availableStock:2,status:'ACTIVE',sortOrder:4}];
 const ids=()=>Array.from(filteredProducts(),p=>p.id);
-assert.deepEqual(ids(),['a','b','c','d']);
+assert.equal(state.catalogSort,'PRICE_DESC','new visits default to highest displayed price first');
+assert.deepEqual(ids(),['c','a','b','d']);
+state.catalogSort='DEFAULT';assert.deepEqual(ids(),['a','b','c','d']);
 state.catalogSort='PRICE_ASC';assert.deepEqual(ids(),['b','a','c','d']);
 state.catalogSort='PRICE_DESC';assert.deepEqual(ids(),['c','a','b','d']);
 state.availableOnly=true;assert.deepEqual(ids(),['a','d']);
 state.catalogSort='NAME';assert.deepEqual(ids(),['a','d']);
 assert.equal(state.seals[0].price,20);assert.equal(state.seals[0].availableStock,3);
 console.log('PASS catalog default/name/price ordering, unknown price last, confirmed availability, immutable records');
+const originalSeals=state.seals;
+state.catalogSort='PRICE_DESC';state.availableOnly=false;
+const sortFixture=[
+  {id:'new',name:'New cheap',kind:'SEAL',category:'AT',section:'NORMAL',price:.01,packPrice:10,packSize:1000,unit:'ใบ',sortOrder:1},
+  {id:'normal',name:'Normal',kind:'SEAL',category:'AT',section:'NORMAL',price:.04,packPrice:40,packSize:1000,unit:'ใบ',sortOrder:20},
+  {id:'rare',name:'Rare',kind:'SEAL',category:'AT',section:'NORMAL',price:900,unit:'ชุด',sortOrder:30},
+  {id:'base',name:'Base',kind:'SEAL',category:'AT',section:'BASE_HARD',price:2,packPrice:2000,packSize:1000,unit:'ใบ',sortOrder:40},
+  {id:'susa',name:'Susa',kind:'SEAL',category:'HT',section:'SUSA',price:4,packPrice:4000,packSize:1000,unit:'ใบ',sortOrder:50},
+  {id:'base-high',name:'Base high',kind:'SEAL',category:'AT',section:'BASE_HARD',price:3,packPrice:3000,packSize:1000,unit:'ใบ',sortOrder:60},
+];
+state.seals=sortFixture;const beforeSort=JSON.stringify(sortFixture);
+assert.deepEqual(ids(),['rare','normal','new','susa','base-high','base']);
+state.category='AT';assert.deepEqual(ids(),['rare','normal','new','base-high','base']);
+state.section='BASE_HARD';assert.deepEqual(ids(),['base-high','base']);
+state.section='NORMAL';assert.deepEqual(ids(),['rare','normal','new']);
+state.category='ALL';state.section='ALL';state.catalogSort='PRICE_ASC';assert.deepEqual(ids(),['base','base-high','susa','new','normal','rare']);
+assert.equal(JSON.stringify(sortFixture),beforeSort,'sorting must not alter prices, stock or record order');
+for(const [kind,field,subcategory] of [['ITEM','items','itemCategory'],['SERVICE','services','serviceCategory']]){
+  state.catalogType=kind;state.catalogSort='PRICE_DESC';
+  state[field]=[{id:'new',name:'New cheap',kind,price:20,sortOrder:1,[subcategory]:'OTHER'},{id:'high',name:'High',kind,price:555,sortOrder:99,[subcategory]:'OTHER'},{id:'mid',name:'Mid',kind,price:30,sortOrder:2,[subcategory]:'OTHER'},{id:'other',name:'Other group',kind,price:1000,[subcategory]:'SECOND'}];
+  assert.deepEqual(ids(),['other','high','mid','new']);
+  state.section='OTHER';assert.deepEqual(ids(),['high','mid','new']);state.section='ALL';
+}
+state.catalogType='TMONEY';state.moneyT={id:'T',kind:'TMONEY',price:.5};assert.deepEqual(ids(),['T']);
+state.catalogType='SEAL';state.catalogSort='NAME';state.availableOnly=true;state.seals=originalSeals;state.items=[];state.services=[];state.moneyT=null;
+console.log('PASS highest-first across categories/subcategories; new cheap products stay below expensive ones; displayed pack/leaf prices and manual sort preserved');
 const assets=require('../scripts/public-image-assets');
 Object.assign(c.window.DMO_CONFIG,{productImages:assets.productImages,sealImageMatches:assets.sealImageMatches});
 for(const [id,row] of Object.entries(assets.sealImageMatches)){
@@ -52,6 +80,10 @@ vm.runInContext('globalThis.setSubject={sealSetOffers,addSealSet};',c);
 state.seals=[{id:'one',name:'A',kind:'SEAL',category:'AT',section:'NORMAL',price:10,packSize:1000,unit:'ชุด',availableStock:5,status:'ACTIVE'},{id:'two',name:'B',kind:'SEAL',category:'AT',section:'NORMAL',price:20,packSize:1000,unit:'ชุด',availableStock:2,status:'ACTIVE'},{id:'hard',name:'C',kind:'SEAL',category:'AT',section:'BASE_HARD',price:1,packSize:1,unit:'ใบ',availableStock:50,status:'ACTIVE'}];
 state.cart=[];
 const sets=c.setSubject.sealSetOffers();assert.equal(sets.find(x=>x.id==='seal-set-AT-1').price,30);assert.equal(sets.find(x=>x.id==='seal-set-AT-3').price,90);
+vm.runInContext('globalThis.setPageSubject={sealSetsPage};',c);
+state.settings.facebookUrl='';state.settings.messengerUrl='';
+const setPage=c.setPageSubject.sealSetsPage();
+assert(setPage.indexOf('เซ็ตซีล AT ชุดใหญ่')<setPage.indexOf('เซ็ตซีล AT เริ่มต้น'),'seal sets remain grouped by line, highest price first within each group');
 assert.equal(sets.find(x=>x.id==='seal-set-AT-1').members.length,2);
 c.setSubject.addSealSet('seal-set-AT-3',1);assert.equal(state.cart.length,0);
 c.setSubject.addSealSet('seal-set-AT-1',2);assert.equal(state.cart.length,2);assert.equal(state.cart[0].quantity,2);assert.equal(state.cart[1].quantity,2);
