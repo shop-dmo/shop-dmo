@@ -654,7 +654,67 @@ function productCard(product) {
   </article>`;
 }
 
+const ITEM_INQUIRIES={
+  INQUIRY_EGG:{title:'🥚 ไข่ดิจิมอน',label:'ไข่ดิจิมอน',image:'product-b50bae8d2d1f3863fb39f74348c156598a88984f71c69222a493ce8a83dbe1f7.png',imageClass:'egg-inquiry-image',subtitle:'ระดับ 3 / 4 / 5 และไข่ดรอป',heading:'หาไข่ตัวไหนอยู่? ส่งชื่อและระดับให้ร้านช่วยเช็กได้เลย',field:'ชื่อไข่ที่ต้องการสอบถาม',hint:'บอกชื่อไข่ ระดับ 3 / 4 / 5 หรือไข่ดรอป และจำนวน (ถ้าทราบ)',example:'เช่น ไข่อากุมอน ระดับ 5 จำนวน 1 ฟอง มีไหมครับ?'},
+  INQUIRY_UNLOCK:{title:'🔓 ไอเทมปลดร่างดิจิมอน',label:'ไอเทมปลดร่างดิจิมอน',image:'product-2617fb0ac20f104417e1605e91cf40fcbccc5fc7226d1e088e0cbbfbaeb17a3e.png',imageClass:'unlock-inquiry-image',subtitle:'แจ้งชื่อดิจิมอนและร่างที่ต้องการ',heading:'อยากปลดร่างตัวไหน? ทักให้ร้านช่วยเช็กไอเทมได้เลย',field:'ชื่อไอเทม หรือดิจิมอนและร่างที่อยากปลด',hint:'พิมพ์ชื่อไอเทมได้เลย หรือบอกชื่อตัวละครและร่างที่จะปลดให้ร้านตรวจสอบ',example:'เช่น ต้องการปลดร่างวอร์เกรย์มอน มีไอเทมปลดร่างไหมครับ?'}
+};
+const itemInquiryDrafts={INQUIRY_EGG:'',INQUIRY_UNLOCK:''};
+function enabledItemInquiries(){return subcategoriesFor('ITEM').filter(row=>Object.prototype.hasOwnProperty.call(ITEM_INQUIRIES,row.value));}
+function currentItemInquiry(){return state.catalogType==='ITEM'&&!state.wishlistOnly&&enabledItemInquiries().some(row=>row.value===state.section)?ITEM_INQUIRIES[state.section]:null;}
+function itemInquiryMessage(key,value){
+  const text=String(value??'').trim().slice(0,500),c=Object.prototype.hasOwnProperty.call(ITEM_INQUIRIES,key)?ITEM_INQUIRIES[key]:null;
+  return c&&text?'สวัสดีครับ ขอสอบถาม'+c.label+'\n'+text+'\nรบกวนร้านตรวจสอบว่ามีหรือไม่มี และแจ้งราคาให้หน่อยครับ':'';
+}
+function itemInquiryContactLinks(){
+  return {messenger:safeExternalUrl(cfg.messengerUrl||state.settings.messengerUrl),facebook:safeExternalUrl(state.settings.facebookUrl||cfg.facebookUrl)};
+}
+function itemInquiryShortcuts(){
+  if(state.catalogType!=='ITEM'||state.wishlistOnly||state.section!=='ALL')return '';
+  return '<div class="item-inquiry-features">'+enabledItemInquiries().map(row=>{
+    const c=ITEM_INQUIRIES[row.value];
+    return '<button class="item-inquiry-shortcut" type="button" data-sec="'+html(row.value)+'"><img src="'+html(c.image)+'" alt="" width="120" height="80"><span><strong>'+html(c.title)+'</strong><small>'+html(c.subtitle)+'</small><small>ทักร้านเช็กราคาและของพร้อมขายได้เลย</small></span><b class="item-inquiry-detail">ดูรายละเอียด →</b></button>';
+  }).join('')+'</div>';
+}
+function itemInquiryPage(c){
+  const key=state.section,draft=itemInquiryDrafts[key]||'',links=itemInquiryContactLinks(),categories=subcategoriesFor('ITEM');
+  return `<div class="grid-main"><section class="panel"><h2 class="panel-title">ไอเทมในเกม</h2><div class="subcategory-filter"><div class="subcategory-filter-title"><b>หมวดย่อย</b><span>เลือกเพื่อกรองสินค้า</span></div><div class="chip-row subcategory-filter-options"><button class="filter-chip" data-sec="ALL">ทุกหมวดย่อย</button>${categories.map(row=>`<button class="filter-chip ${state.section===row.value?'active':''}" data-sec="${html(row.value)}" aria-pressed="${state.section===row.value}">${html(row.label)}</button>`).join('')}</div></div>
+  <div class="item-inquiry-heading"><h2>${html(c.title)}</h2><p class="product-meta">${html(c.heading)}</p></div>
+  <div class="item-inquiry-poster ${c.imageClass}"><img src="${html(c.image)}" alt="ภาพตัวอย่าง${html(c.label)}ในเกม" decoding="async"><p class="product-meta">ภาพตัวอย่าง • จำนวนในภาพไม่ใช่การยืนยันสต๊อกปัจจุบัน</p></div>
+  <section class="item-inquiry-composer" aria-labelledby="itemInquiryLabel"><label id="itemInquiryLabel" for="itemInquiryName">${html(c.field)}</label><p class="product-meta" id="itemInquiryHint">${html(c.hint)}</p><textarea id="itemInquiryName" rows="3" maxlength="500" aria-describedby="itemInquiryHint itemInquiryDelivery" placeholder="${html(c.example)}">${html(draft)}</textarea>
+  <div class="item-inquiry-actions"><button class="btn primary" id="copyItemInquiryBtn" type="button" ${draft.trim()?'':'disabled'}>📋 คัดลอกคำถาม</button>${links.messenger?`<a class="btn" href="${html(links.messenger)}" target="_blank" rel="noopener noreferrer">💬 เปิด Messenger ร้าน</a>`:'<span class="product-meta">ยังไม่ได้ตั้งค่า Messenger ของร้าน</span>'}</div>
+  <p class="product-meta" id="itemInquiryDelivery">คัดลอกคำถาม → เปิด Messenger → วางแล้วกดส่งให้ร้าน • ร้านจะตรวจสอบว่ามีหรือไม่มีและแจ้งราคา ไม่ได้เช็กสต๊อกอัตโนมัติ</p><p id="itemInquiryStatus" role="status" aria-live="polite"></p><details id="itemInquiryPreview"><summary>ดูข้อความที่จะส่ง / คัดลอกเอง</summary><textarea id="itemInquiryMessage" rows="5" readonly aria-label="ข้อความคำถามสำหรับส่งให้ร้าน">${html(itemInquiryMessage(key,draft))}</textarea></details></section></section>
+  <aside class="panel cart-panel item-inquiry-aside"><span class="badge">สอบถามกับร้านโดยตรง</span><h2>${html(c.title)}</h2><p>ทักมาถามก่อนได้เลย</p><ol><li>${html(c.hint)}</li><li>ส่งชื่อหรือรูปประกอบให้ร้าน</li><li>รอร้านแจ้งราคาและของพร้อมขาย</li></ol>${links.messenger?`<a class="btn primary full" href="${html(links.messenger)}" target="_blank" rel="noopener noreferrer">💬 สอบถามทาง Messenger</a>`:''}${links.facebook?`<a class="btn full" href="${html(links.facebook)}" target="_blank" rel="noopener noreferrer">📘 Facebook ร้าน</a>`:''}<p class="product-meta">หมวดนี้ไม่มีราคา สต๊อก หรือปุ่มเพิ่มตะกร้า กรุณาสอบถามร้านก่อนสั่ง</p></aside></div>`;
+}
+function bindItemInquiry(){
+  const input=document.getElementById('itemInquiryName'),button=document.getElementById('copyItemInquiryBtn');
+  if(!input||!button)return;
+  const key=state.section;
+  input.oninput=()=>{
+    itemInquiryDrafts[key]=input.value.slice(0,500);
+    document.getElementById('itemInquiryMessage').value=itemInquiryMessage(key,itemInquiryDrafts[key]);
+    button.disabled=!input.value.trim();button.textContent='📋 คัดลอกคำถาม';
+    document.getElementById('itemInquiryStatus').textContent='';
+  };
+  button.onclick=async()=>{
+    const message=itemInquiryMessage(key,itemInquiryDrafts[key]);if(!message)return;
+    button.disabled=true;button.textContent='กำลังคัดลอก…';
+    try{
+      await navigator.clipboard.writeText(message);
+      if(!button.isConnected)return;
+      button.textContent='✓ คัดลอกแล้ว';
+      document.getElementById('itemInquiryStatus').textContent=message===itemInquiryMessage(key,input.value)?'คัดลอกแล้ว เปิด Messenger แล้ววางและกดส่งให้ร้านได้เลย (ยังไม่ได้ส่งข้อความ)':'คัดลอกข้อความก่อนแก้ไขแล้ว กรุณาคัดลอกใหม่หากต้องการส่งข้อความล่าสุด';
+    }catch(error){
+      if(!button.isConnected)return;
+      document.getElementById('itemInquiryPreview').open=true;
+      const output=document.getElementById('itemInquiryMessage');output.focus();output.select();
+      button.textContent='📋 คัดลอกคำถาม';
+      document.getElementById('itemInquiryStatus').textContent='คัดลอกอัตโนมัติไม่ได้ กรุณาคัดลอกข้อความด้านล่างแล้ววางใน Messenger';
+    }finally{if(button.isConnected)button.disabled=!input.value.trim();}
+  };
+}
+
 function shopPage() {
+  const itemInquiry=currentItemInquiry();if(itemInquiry)return itemInquiryPage(itemInquiry);
   if(state.catalogType==='SEAL_SET'&&!state.wishlistOnly)return sealSetsPage();
   const products = filteredProducts();
   const visibleProducts=products.slice(0,state.catalogVisible);
@@ -676,6 +736,7 @@ function shopPage() {
         ${subcategories.length?`<div class="subcategory-filter" aria-label="เลือกหมวดย่อย"><div class="subcategory-filter-title"><b>หมวดย่อย</b><span>เลือกเพื่อกรองสินค้า</span></div><div class="chip-row subcategory-filter-options"><button class="filter-chip subcategory-chip ${state.section==='ALL'?'active':''}" data-sec="ALL" aria-pressed="${state.section==='ALL'}">ทุกหมวดย่อย</button>${subcategories.map(row=>`<button class="filter-chip subcategory-chip ${state.section===row.value?'active':''}" data-sec="${html(row.value)}" aria-pressed="${state.section===row.value}">${html(row.label)}</button>`).join('')}</div></div>`:''}
       </div>
       ${servicePosterUrl?`<div class="service-poster"><img src="${html(servicePosterUrl)}" alt="โปสเตอร์บริการ" loading="lazy" decoding="async" onerror="this.closest('.service-poster').hidden=true"></div>`:''}
+      ${itemInquiryShortcuts()}
       <div class="product-meta">พร้อมขาย ${products.filter(p=>canBuy(p)&&(p.kind==='SERVICE'||(p.status!=='CHECK_STOCK'&&availableStock(p)!==''&&Number(availableStock(p))>0))).length} จาก ${products.length} รายการที่แสดงตามตัวกรอง</div>
       <div class="search-summary">พบ ${products.length} รายการ${state.search ? ` สำหรับ “${html(state.search)}”` : ''}${products.length>visibleProducts.length?` • แสดง ${visibleProducts.length} รายการแรก`:''}</div><div class="products">${products.length ? visibleProducts.map(productCard).join('') : '<div class="empty"><b>ไม่พบสินค้า</b><span>ลองตรวจคำสะกด เปลี่ยนหมวด หรือค้นด้วยชื่อเรียกอื่น</span><button class="btn small" id="emptyResetBtn">ล้างการค้นหา</button></div>'}</div>${products.length>visibleProducts.length?`<button class="btn load-more" id="loadMoreProductsBtn">แสดงเพิ่มอีก ${Math.min(60,products.length-visibleProducts.length)} รายการ</button>`:''}
     </section>
@@ -2091,6 +2152,7 @@ async function submitAdminLogin() {
 }
 
 function bind() {
+  bindItemInquiry();
   const budgetSend=document.getElementById('sealBudgetSend');
   if(budgetSend)budgetSend.onclick=async()=>{
     const input=document.getElementById('sealBudget'),budget=Number(input.value);
