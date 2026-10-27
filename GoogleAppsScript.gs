@@ -742,6 +742,9 @@ function assertProductSubcategoryRemovalsUnused(previous,next){
     const count=productSubcategoryUsage(item.kind,item.value);if(count)throw Error('ลบหมวดย่อย "'+String(item.label||item.value)+'" ไม่ได้ เพราะมีสินค้าผูกอยู่ '+count+' รายการ (รวมสินค้าที่กู้คืนได้ในถังขยะ)');
   });
 }
+function isSealSetProduct(product){
+  return Number(product.packSize)===1000&&(product.section==='NORMAL'||product.section==='SUSA'&&['HT-NORMAL-47','DE-NORMAL-170'].includes(String(product.id)));
+}
 function normalizeSealSets(value){
   const text=String(value||'[]');if(text.length>45000)throw Error('ข้อมูลเซ็ตซีลยาวเกินกำหนด');
   const input=JSON.parse(text);if(!Array.isArray(input)||input.length>18)throw Error('รูปแบบเซ็ตซีลไม่ถูกต้อง');
@@ -752,7 +755,7 @@ function normalizeSealSets(value){
     if(imageUrl&&!/^https:\/\/[^\s<>]+$/i.test(imageUrl))throw Error('รูปเซ็ตต้องเป็น URL HTTPS');
     if(!Array.isArray(row.memberIds)||row.memberIds.length>250)throw Error('รายชื่อซีลไม่ถูกต้อง');const memberIds=[...new Set(row.memberIds.map(String))];
     if(row.enabled!==false&&!memberIds.length)throw Error('เซ็ตที่เปิดขายต้องมีซีล');
-    memberIds.forEach(memberId=>{const p=products.get(memberId);if(!p||p.section!=='NORMAL'||Number(p.packSize)!==1000||(category!=='ALL'&&p.category!==category)||Number(p.price)<=0)throw Error('ซีลในเซ็ตต้องตรงสายและเป็นซีลปกติชุด 1,000 ใบ');});
+    memberIds.forEach(memberId=>{const p=products.get(memberId);if(!p||!isSealSetProduct(p)||(category!=='ALL'&&p.category!==category)||Number(p.price)<=0)throw Error('ซีลในเซ็ตต้องตรงสายและเป็นซีลปกติชุด 1,000 ใบ หรือสตาร์มอน/โกสึมอนซูซาที่กำหนด');});
     return{id,name,category,multiplier,enabled:row.enabled!==false,imageUrl,memberIds};
   });
 }

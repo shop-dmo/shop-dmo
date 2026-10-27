@@ -5,7 +5,7 @@ const {minifyOptions,canonicalBytes}=require('../scripts/site-build-options');
 const original=fs.readFileSync(path.join(__dirname,'..','app.js'),'utf8');
 // Export test hooks before mangling so the tests don't depend on internal names.
 const functions=original.slice(0,original.indexOf('function touchAdminActivity'));
-const code=functions+'\nglobalThis.subject={state,pricingSummary,orderText,categoryDiscountHtml,themePalette,shopIdentity,productSubcategorySettings,shopPage,adminPage,adminBootstrapData,apiPost,submitAdminLogin,bindModalDirty,closeStateModal,setRender:fn=>render=fn,setLoadAdmin:fn=>loadAdmin=fn};';
+const code=functions+'\nglobalThis.subject={state,pricingSummary,orderText,categoryDiscountHtml,themePalette,shopIdentity,productSubcategorySettings,shopPage,adminPage,adminBootstrapData,apiPost,submitAdminLogin,bindModalDirty,closeStateModal,sealSetOffers,sealSetCard,sealQuantityPerSet,setRender:fn=>render=fn,setLoadAdmin:fn=>loadAdmin=fn};';
 const built=minify_sync(code,minifyOptions()).code;
 const storage=()=>{const entries=new Map();return{getItem:k=>entries.get(k)||null,setItem:(k,v)=>entries.set(k,String(v)),removeItem:k=>entries.delete(k)};};
 function fixture(source){
@@ -20,6 +20,12 @@ const items=[{id:'S',kind:'SEAL',name:'Test seal',category:'AT',section:'NORMAL'
 test('LF and CRLF normalize to identical release inputs; binary icons remain intact',()=>{
   assert.deepEqual(canonicalBytes('app.js',Buffer.from('one\r\ntwo')),canonicalBytes('app.js',Buffer.from('one\ntwo')));
   const binary=Buffer.from([13,10,0,255]);assert.deepEqual(canonicalBytes('icon.png',binary),binary);
+});
+test('SUSA set exceptions keep 1-pack quantities/prices after production mangling',()=>{
+  const seals=[{id:'HT-NORMAL-47',name:'สตาร์มอน',kind:'SEAL',category:'HT',section:'SUSA',unit:'ชุด',price:30,packSize:1000,packPrice:30,availableStock:5,status:'ACTIVE'},{id:'DE-NORMAL-170',name:'โกสึมอน',kind:'SEAL',category:'DE',section:'SUSA',unit:'ชุด',price:30,packSize:1000,packPrice:30,availableStock:5,status:'ACTIVE'},{id:'ordinary',name:'Other',kind:'SEAL',category:'AT',section:'NORMAL',unit:'ใบ',price:.01,packSize:1000,packPrice:10,availableStock:10000,status:'ACTIVE'}];
+  for(const {api} of [source,minified]){api.state.seals=normal(seals);api.state.settings={};}
+  const a=source.api.sealSetOffers().find(o=>o.id==='seal-set-ALL-3'),b=minified.api.sealSetOffers().find(o=>o.id==='seal-set-ALL-3');
+  assert.equal(b.price,90);assert.equal(b.members.length,3);assert.equal(minified.api.sealQuantityPerSet(seals[0],3),1);assert.equal(minified.api.sealQuantityPerSet(seals[2],3),3000);assert.deepEqual(normal(b),normal(a));assert.equal(minified.api.sealSetCard(b),source.api.sealSetCard(a));
 });
 for(const percent of [0,5,10])test(`minified ${percent}% category pricing, D2 and order copy equal readable source`,()=>{
   for(const {api} of [source,minified])Object.assign(api.state,{cart:normal(items),seals:[items[0]],items:[items[1]],services:[items[2]],promotions:[],settings:{shopName:'Test',ownerName:'',promoThreshold:100,promoReward:150,categoryDiscountSealPercent:percent,categoryDiscountItemPercent:percent,categoryDiscountServicePercent:0}});

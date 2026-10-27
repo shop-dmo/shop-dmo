@@ -9,4 +9,10 @@ for(const change of [{memberIds:['HT-1']},{memberIds:['missing']},{multiplier:0}
 assert.throws(()=>normalize([row,row]));
 assert.equal(normalize([{...row,passwordHash:'PRIVATE',price:1}])[0].passwordHash,undefined);
 assert.equal(normalize([{...row,price:1}])[0].price,undefined);
+c.existingRows=()=>[{id:'HT-NORMAL-47',name:'สตาร์มอน',category:'HT',section:'SUSA',packSize:1000,price:10,unit:'ชุด',stockUnit:'LEAF',allowSplitSale:'FALSE',stock:5000},{id:'DE-NORMAL-170',name:'โกสึมอน',category:'DE',section:'SUSA',packSize:1000,price:20,unit:'ชุด',stockUnit:'LEAF',allowSplitSale:'FALSE',stock:5000},{id:'other-susa',name:'Other',category:'HT',section:'SUSA',packSize:1000,price:10}];
+const special={id:'seal-set-ALL-3',name:'Full set',category:'ALL',multiplier:3,memberIds:['HT-NORMAL-47','DE-NORMAL-170']};
+assert.equal(normalize([special])[0].memberIds.length,2);
+assert.throws(()=>normalize([{...special,memberIds:['other-susa']}]));
+assert.throws(()=>normalize([{...special,id:'seal-set-AT-3',category:'AT'}]));
+const sale=c.sealSalesModel(c.existingRows()[0]);assert.equal(sale.unit,'ชุด');assert.equal(sale.price,10);assert.equal(sale.stockFactor,1000);assert.equal(sale.availableStock,5);
 console.log('PASS backend set validation: account roles remain guarded, matching categories, known products, quantity, HTTPS images, dedupe and private-field stripping');
