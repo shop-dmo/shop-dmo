@@ -562,8 +562,8 @@ function sealSetCard(offer){
   return `<article class="seal-set-card" data-seal-line="${html(offer.category)}">${offer.imageUrl?`<img class="seal-set-image" src="${html(offer.imageUrl)}" alt="${html(offer.name)}" loading="lazy">`:''}<div class="seal-set-heading"><span class="badge">${html(offer.category==='ALL'?'ครบทุกสาย':offer.category)}</span><h3>${html(offer.name)}</h3></div><p>${offer.members.length} ซีล · ตัวละ ${money(offer.multiplier*1000)} ใบ${quantityNote}</p><div class="product-price">${money(offer.price)} บาท/เซ็ต</div>${discount?`<small>หลังส่วนลดซีล ${money(discount)}% ประมาณ ${money(net)} บาท</small>`:''}<details><summary>ดูรายชื่อซีลและจำนวนที่จะได้รับ (${offer.members.length})</summary><ol>${offer.members.map(p=>`<li><b>${html(p.name)}</b><span>${money(sealSetMemberMultiplier(p,offer.multiplier)*1000)} ใบ · ${money(sealSetMemberPrice(p,offer.multiplier))} บาท</span></li>`).join('')}</ol></details><div class="product-actions"><input type="number" class="qty-input" min="1" step="1" value="1" data-set-qty="${html(offer.id)}" aria-label="จำนวนเซ็ต ${html(offer.name)}"><button class="btn primary" data-add-set="${html(offer.id)}" ${offer.available?'':'disabled'}>${offer.available?'+ เพิ่มทั้งเซ็ต':'สต๊อกบางตัวไม่พอ'}</button></div></article>`;
 }
 function sealSetsPage(){
-  const offers=sealSetOffers().sort((a,b)=>b.price-a.price||String(a.name).localeCompare(String(b.name),'th')),groups=[...SEAL_SET_CATEGORIES,'ALL'].filter(cat=>state.category==='ALL'||cat===state.category),query=state.search.trim().toLocaleLowerCase('th');
-  return `<div class="grid-main"><section class="panel"><h2 class="panel-title">📦 เซ็ตซีลของร้าน</h2><p class="product-meta">เซ็ตเริ่มต้น ตัวละ 1,000 ใบ · เซ็ตชุดใหญ่ ตัวละ 3,000 ใบ ยกเว้นสตาร์มอน (HT) และโกสึมอน (DE) ตัวละ 1,000 ใบ รวมถึงเซ็ตครบทุกสาย<br>คัดซีลเริ่มต้นราคาน้อยไปมากในแต่ละสาย จากซีลปกติชุด 1,000 ใบที่มีสต๊อกยืนยัน ราคาคิดตามร้าน ณ ตอนโหลดข้อมูล กรุณาดูรายชื่อก่อนเพิ่ม</p><div class="chip-row">${['ALL',...SEAL_SET_CATEGORIES].map(cat=>`<button class="filter-chip ${state.category===cat?'active':''}" data-seal-line="${cat}" data-cat="${cat}">${cat==='ALL'?'ทุกสาย':cat}</button>`).join('')}</div><input class="search" id="searchInput" placeholder="ค้นหาชื่อเซ็ตหรือซีลในเซ็ต" value="${html(state.search)}">${state.category==='ALL'?rareLeafSetCard(query):''}${groups.map(cat=>{const rows=offers.filter(o=>o.category===cat&&(!query||`${o.name} ${o.members.map(p=>p.name).join(' ')}`.toLocaleLowerCase('th').includes(query)));return rows.length?`<section class="seal-set-group" data-seal-line="${cat}"><h3>${cat==='ALL'?'เซ็ตครบทุกสาย':`ซีลสาย ${cat}`}</h3><div class="seal-set-grid">${rows.map(sealSetCard).join('')}</div></section>`:'';}).join('')||'<div class="empty">ยังไม่มีซีลปกติชุด 1,000 ใบที่มีสต๊อกยืนยันในสายนี้</div>'}</section>${cartPanel()}</div>`;
+  const offers=sealSetOffers().sort((a,b)=>b.price-a.price||String(a.name).localeCompare(String(b.name),'th')),groups=[...SEAL_SET_CATEGORIES,'ALL'].filter(cat=>state.category==='ALL'||cat===state.category);
+  return `<div class="grid-main"><section class="panel"><h2 class="panel-title">📦 เซ็ตซีลของร้าน</h2><p class="product-meta">เซ็ตเริ่มต้น ตัวละ 1,000 ใบ · เซ็ตชุดใหญ่ ตัวละ 3,000 ใบ ยกเว้นสตาร์มอน (HT) และโกสึมอน (DE) ตัวละ 1,000 ใบ รวมถึงเซ็ตครบทุกสาย<br>คัดซีลเริ่มต้นราคาน้อยไปมากในแต่ละสาย จากซีลปกติชุด 1,000 ใบที่มีสต๊อกยืนยัน ราคาคิดตามร้าน ณ ตอนโหลดข้อมูล กรุณาดูรายชื่อก่อนเพิ่ม</p><div class="chip-row">${['ALL',...SEAL_SET_CATEGORIES].map(cat=>`<button class="filter-chip ${state.category===cat?'active':''}" data-seal-line="${cat}" data-cat="${cat}">${cat==='ALL'?'ทุกสาย':cat}</button>`).join('')}</div>${state.category==='ALL'?rareLeafSetCard():''}${groups.map(cat=>{const rows=offers.filter(o=>o.category===cat);return rows.length?`<section class="seal-set-group" data-seal-line="${cat}"><h3>${cat==='ALL'?'เซ็ตครบทุกสาย':`ซีลสาย ${cat}`}</h3><div class="seal-set-grid">${rows.map(sealSetCard).join('')}</div></section>`:'';}).join('')||'<div class="empty">ยังไม่มีซีลปกติชุด 1,000 ใบที่มีสต๊อกยืนยันในสายนี้</div>'}</section>${cartPanel()}</div>`;
 }
 function addSealSet(id,quantity){
   const offer=sealSetOffers().find(o=>o.id===id);if(!offer)return;
@@ -709,10 +709,24 @@ function rareLeafSetCard(query=''){
 function stockVerificationMarkup(product){
   if(product.kind==='SERVICE')return '';
   const at=Date.parse(product.stockVerifiedAt||''),age=Date.now()-at;
-  const message=state.offline?'ข้อมูลแคช/ออฟไลน์ • ทักร้านยืนยันก่อน':!Number.isFinite(at)||age<0?'ร้านยังไม่ได้บันทึกเวลาตรวจสต๊อก':`ร้านตรวจสต๊อก ${new Date(at).toLocaleString('th-TH')}${age>86400000?' • เกิน 24 ชั่วโมง กรุณาสอบถามอีกครั้ง':''}`;
-  return `<small class="stock-verification">${html(message)} · ไม่ใช่เวลาที่โหลดหน้าเว็บ</small>`;
+  const message=state.offline?'ออฟไลน์ · กรุณาเช็กสต๊อกกับร้าน':Number.isFinite(at)&&age>86400000?'สต๊อกอาจเปลี่ยน · กรุณาเช็กกับร้าน':'';
+  return message?`<small class="stock-verification">${html(message)}</small>`:'';
 }
 function sealBudgetPanel(){return `<section class="seal-budget-help"><h2>${html(configuredSettingText(state.settings,'sealBudgetTitle','🌟 มือใหม่? ให้ร้านจัดซีลตามงบ'))}</h2><p>${html(configuredSettingText(state.settings,'sealBudgetDescription','เลือกซีลพื้นฐานจากราคาถูกไปแพง จนงบไม่พอรายการถัดไป'))}</p><div class="seal-budget-controls"><div class="seal-budget-fields"><label for="sealBudget">งบ (บาท)<input id="sealBudget" type="number" min="1" max="10000000" step="1" placeholder="เช่น 500"></label><label for="sealBudgetLine">สายที่ต้องการ<select id="sealBudgetLine"><option value="ALL">ทุกสาย</option>${SEAL_SET_CATEGORIES.map(cat=>`<option>${cat}</option>`).join('')}</select></label><label for="sealBudgetLeaves">จำนวนต่อตัว<select id="sealBudgetLeaves"><option value="1000">1,000 ใบ</option><option value="3000">3,000 ใบ</option></select></label></div><div class="seal-budget-actions"><button class="btn" id="sealBudgetSuggest" type="button">ลองจัดรายการตามงบ</button><button class="btn primary" id="sealBudgetSend" type="button">${html(configuredSettingText(state.settings,'sealBudgetButton','💬 คัดลอกและเปิด Messenger'))}</button></div></div><div id="sealBudgetProposal" role="status" aria-live="polite"></div><button class="btn small" id="copySealProposal" type="button" disabled>คัดลอกรายการแนะนำ</button><small>เฉพาะซีลพื้นฐาน (ปกติ) • เรียงราคาต่ำไปสูง ตามจำนวนใบที่เลือกจนงบไม่พอ • อิงสต๊อกบนเว็บ ร้านยังต้องยืนยัน • ก่อนส่วนลด/โปรโมชั่น ไม่ยืนยันซื้อหรือจอง • สูงสุด 250 รายการ</small><textarea id="sealBudgetMessage" readonly hidden aria-label="ข้อความขอให้ร้านจัดซีล"></textarea></section>`;}
+function groupSealBudgetItems(items){
+  const groups=new Map();
+  for(const item of items){
+    const line=SEAL_SET_CATEGORIES.includes(item.category)?item.category:'ไม่ระบุสาย';
+    if(!groups.has(line))groups.set(line,[]);
+    groups.get(line).push(item);
+  }
+  return [...SEAL_SET_CATEGORIES,'ไม่ระบุสาย'].filter(line=>groups.has(line)).map(line=>[line,groups.get(line).sort((a,b)=>a.amount-b.amount||String(a.name).localeCompare(String(b.name),'th'))]);
+}
+function sealBudgetItemLine(item){return `${item.name} ${money(item.leaves)} ใบ — ${money(item.amount)} บาท`;}
+function sealBudgetCopyText(result){
+  const lines=groupSealBudgetItems(result.items).flatMap(([line,items])=>['',line,...items.map(sealBudgetItemLine)]);
+  return ['ขอให้ร้านตรวจรายการซีลตามงบ (ไม่ยืนยันซื้อ)','🦖 ซีล',...lines,'',`รวมก่อนส่วนลด ${money(result.total)} บาท`,'กรุณายืนยันราคาและสต๊อกล่าสุด'].join('\n');
+}
 function suggestSealBudget(products,budget,line='ALL',options={}){
   const cents=Math.floor(Number(budget)*100); const leaves=Number(options.leaves??1000),packs=leaves/1000;
   if(options.offline||![1000,3000].includes(leaves)||!Number.isSafeInteger(cents)||cents<100||cents>1000000000||!['ALL',...SEAL_SET_CATEGORIES].includes(line))return{items:[],total:0,reason:'งบ สาย หรือจำนวนใบไม่ถูกต้อง หรือกำลังใช้ข้อมูลออฟไลน์'};
@@ -748,8 +762,18 @@ function bindShopImprovements(){
     const field=document.getElementById(id);if(!field)continue;
     field.addEventListener('input',()=>{document.getElementById('sealBudgetProposal').textContent='';document.getElementById('copySealProposal').disabled=true;const output=document.getElementById('sealBudgetMessage');output.value='';output.hidden=true;});
   }
-  const suggest=document.getElementById('sealBudgetSuggest');if(suggest)suggest.onclick=()=>{const result=calculate(),host=document.getElementById('sealBudgetProposal');host.textContent=result.reason;const list=document.createElement('ul');for(const p of result.items){const li=document.createElement('li');li.textContent=`${p.name} (${p.category}) ${money(p.leaves)} ใบ · ${money(p.amount)} บาท`;list.append(li);}host.append(list);if(result.items.length)host.append(document.createTextNode(`รวมก่อนส่วนลด ${money(result.total)} บาท`));document.getElementById('copySealProposal').disabled=!result.items.length;};
-  const copy=document.getElementById('copySealProposal');if(copy)copy.onclick=async()=>{const result=calculate();if(!result.items.length){copy.disabled=true;return toast(result.reason);}const text='ขอให้ร้านตรวจรายการซีลตามงบ (ไม่ยืนยันซื้อ)\n'+result.items.map(p=>`${p.name} ${money(p.leaves)} ใบ · ${money(p.amount)} บาท`).join('\n')+`\nรวมก่อนส่วนลด ${money(result.total)} บาท\nกรุณายืนยันราคาและสต๊อกล่าสุด`;const output=document.getElementById('sealBudgetMessage');output.value=text;output.hidden=false;try{await copyText(text,'คัดลอกรายการล่าสุดแล้ว ยังไม่ได้ส่งหรือจองสินค้า');}catch(e){output.focus();output.select();toast('กรุณาคัดลอกข้อความด้วยตัวเอง');}};
+  const suggest=document.getElementById('sealBudgetSuggest');if(suggest)suggest.onclick=()=>{
+    const result=calculate(),host=document.getElementById('sealBudgetProposal');host.textContent=result.reason;
+    for(const [line,items] of groupSealBudgetItems(result.items)){
+      const group=document.createElement('section'),heading=document.createElement('h3'),list=document.createElement('ul');
+      group.className='seal-budget-result-group';heading.textContent=line;
+      for(const item of items){const li=document.createElement('li');li.textContent=sealBudgetItemLine(item);list.append(li);}
+      group.append(heading,list);host.append(group);
+    }
+    if(result.items.length)host.append(document.createTextNode(`รวมก่อนส่วนลด ${money(result.total)} บาท`));
+    document.getElementById('copySealProposal').disabled=!result.items.length;
+  };
+  const copy=document.getElementById('copySealProposal');if(copy)copy.onclick=async()=>{const result=calculate();if(!result.items.length){copy.disabled=true;return toast(result.reason);}const text=sealBudgetCopyText(result);const output=document.getElementById('sealBudgetMessage');output.value=text;output.hidden=false;try{await copyText(text,'คัดลอกรายการล่าสุดแล้ว ยังไม่ได้ส่งหรือจองสินค้า');}catch(e){output.focus();output.select();toast('กรุณาคัดลอกข้อความด้วยตัวเอง');}};
   const preview=document.getElementById('previewRecovery');if(preview)preview.onclick=async()=>{if(preview.disabled)return;preview.disabled=true;try{const result=await apiPost({action:'previewBackupRestore',token:state.adminToken,backupId:document.getElementById('recoveryBackup').value});state.backupRestorePreview=result.plan;render();}catch(e){toast(e.message);preview.disabled=false;}};
 }
 const ITEM_INQUIRIES={

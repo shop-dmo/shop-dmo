@@ -1,7 +1,7 @@
 'use strict';
 const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm'),path=require('node:path');
 const {minify_sync}=require('terser'),{minifyOptions}=require('../scripts/site-build-options');
-const text=fs.readFileSync(path.join(__dirname,'../app.js'),'utf8'),code=text.slice(0,text.indexOf('function touchAdminActivity'))+'\nglobalThis.s={state,suggestSealBudget,stockVerificationMarkup,itemInquiryConfig,shopContentSettingsPanel,sealCardPrice,recoveryGuidePanel,rareLeafSetCard};';
+const text=fs.readFileSync(path.join(__dirname,'../app.js'),'utf8'),code=text.slice(0,text.indexOf('function touchAdminActivity'))+'\nglobalThis.s={state,suggestSealBudget,groupSealBudgetItems,sealBudgetCopyText,stockVerificationMarkup,itemInquiryConfig,shopContentSettingsPanel,sealCardPrice,recoveryGuidePanel,rareLeafSetCard};';
 const now=Date.now(),stamp=new Date(now).toISOString();
 function seal(id,extra={}){return{id,name:id,kind:'SEAL',category:'AT',section:'NORMAL',packSize:1000,price:.01,packPrice:10,unit:'ใบ',availableStock:5000,status:'ACTIVE',stockVerifiedAt:stamp,...extra};}
 for(const script of [code,minify_sync(code,minifyOptions()).code]){
@@ -15,10 +15,14 @@ for(const script of [code,minify_sync(code,minifyOptions()).code]){
  assert.equal(s.suggestSealBudget(Array.from({length:300},(_,i)=>seal('id'+i)),10000,'ALL',{now}).items.length,250);
  const ordered=s.suggestSealBudget([seal('dear',{price:.03,packPrice:30}),seal('cheap',{price:.005,packPrice:5}),seal('middle',{price:.01,packPrice:10}),seal('HT-NORMAL-47',{section:'SUSA',unit:'ชุด',price:1,packPrice:1}),seal('hard',{section:'BASE_HARD',price:.001,packPrice:1})],25,'ALL',{now});assert.equal(ordered.items.map(p=>p.id).join(','),'cheap,middle');assert.equal(ordered.total,15);
  assert.equal(s.suggestSealBudget([seal('same'),seal('same')],100,'ALL',{now}).items.length,1);
+ const mixed=s.suggestSealBudget([seal('at-high',{name:'AT High',category:'AT',packPrice:30}),seal('de-low',{name:'DE Low',category:'DE',packPrice:5}),seal('at-low',{name:'AT Low',category:'AT',packPrice:10})],45);
+ assert.equal(mixed.items.map(p=>p.id).join(','),'de-low,at-low,at-high');
+ assert.equal(JSON.stringify(s.groupSealBudgetItems(mixed.items).map(([line,rows])=>[line,rows.map(p=>p.id)])),JSON.stringify([['AT',['at-low','at-high']],['DE',['de-low']]]));
+ assert.match(s.sealBudgetCopyText(mixed),/\nAT\nAT Low[^\n]+\nAT High[^\n]+\n\nDE\nDE Low[^\n]+/);
  const large=[seal('leaf-short',{availableStock:2999}),seal('pack-short',{unit:'ชุด',availableStock:2}),seal('leaf-full',{price:.015,packPrice:15,availableStock:3000}),seal('pack-full',{unit:'ชุด',packPrice:20,availableStock:3})];
  const bulk=s.suggestSealBudget(large,105,'AT',{leaves:'3000'});assert.equal(bulk.total,105);assert.equal(bulk.remaining,0);assert.equal(bulk.items.map(p=>p.id).join(','),'leaf-full,pack-full');assert(bulk.items.every(p=>p.leaves===3000));assert.equal(bulk.items[0].quantity,3000);assert.equal(bulk.items[1].quantity,3);
  assert.equal(s.suggestSealBudget(large,104,'AT',{leaves:3000}).total,45);assert.equal(s.suggestSealBudget(large,10000,'AT',{leaves:2000}).items.length,0);
- s.state.offline=false;assert(s.stockVerificationMarkup(seal('x',{stockVerifiedAt:''})).includes('ยังไม่ได้'));assert(s.stockVerificationMarkup(seal('x',{stockVerifiedAt:new Date(now-90000000).toISOString()})).includes('เกิน 24'));s.state.offline=true;assert(s.stockVerificationMarkup(seal('x')).includes('ออฟไลน์'));
+ s.state.offline=false;assert.equal(s.stockVerificationMarkup(seal('x',{stockVerifiedAt:''})),'');assert.equal(s.stockVerificationMarkup(seal('x',{stockVerifiedAt:new Date(now).toISOString()})),'');assert(s.stockVerificationMarkup(seal('x',{stockVerifiedAt:new Date(now-90000000).toISOString()})).includes('สต๊อกอาจเปลี่ยน'));s.state.offline=true;assert(s.stockVerificationMarkup(seal('x')).includes('ออฟไลน์'));
  s.state.settings={eggPosterUrl:'https://example.invalid/new.png',eggHeading:'<script>x</script>',eggHint:'hint',eggExample:'example'};assert.equal(s.itemInquiryConfig('INQUIRY_EGG').image,'https://example.invalid/new.png');assert.equal(s.itemInquiryConfig('INQUIRY_UNLOCK').image.includes('product-'),true);assert.equal(s.itemInquiryConfig('__proto__'),null);
  assert(s.shopContentSettingsPanel(s.state.settings).includes('&lt;script&gt;'));assert.equal((s.shopContentSettingsPanel({}).match(/id="setContent/g)||[]).length,8);s.state.settings.eggPosterUrl='javascript:alert(1)';assert(s.itemInquiryConfig('INQUIRY_EGG').image.startsWith('product-'));s.state.settings.eggHeading='';assert(s.itemInquiryConfig('INQUIRY_EGG').heading.length>0);
  assert(s.sealCardPrice(seal('pack',{unit:'ชุด',price:30,packPrice:30})).includes('30 บาท/ชุด · 1,000 ใบ'));
