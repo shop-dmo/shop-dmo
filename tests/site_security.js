@@ -19,7 +19,7 @@ test('all private action routes deny anonymous requests before database readines
 });
 test('read-only VIEWER cannot write inventory, orders, settings, users, backups or invalidate caches',()=>{
   const {c,writes}=fixture();c.getSession=()=>({userId:'viewer',role:'VIEWER'});
-  for(const action of ['upsert','setStock','saveSettings','updateOrder','archiveOrder','restoreArchivedOrder','saveSecurityUser','restoreBackup','runIntegrityCheck']){
+  for(const action of ['upsert','setStock','saveSettings','updateOrder','archiveOrder','restoreArchivedOrder','saveSecurityUser','restoreBackup','previewBackupRestore','runIntegrityCheck']){
     assert.equal(post(c,{action,token:'VIEWER'}).ok,false,action);
   }
   assert(!writes.some(x=>x.endsWith('cache')));
@@ -29,6 +29,13 @@ test('STAFF can reach order handling but cannot alter settings or archive',()=>{
   assert.equal(post(c,{action:'updateOrder',token:'STAFF'}).ok,true);assert.equal(calls,1);
   assert.equal(post(c,{action:'saveSettings',token:'STAFF'}).ok,false);
   assert.equal(post(c,{action:'archiveOrder',token:'STAFF'}).ok,false);
+  assert.equal(post(c,{action:'previewBackupRestore',token:'STAFF'}).ok,false);
+});
+
+test('authorized recovery preview skips database migration and public cache mutations',()=>{
+  const {c,writes}=fixture();c.getSession=()=>({userId:'owner',role:'OWNER'});c.previewBackupRestore=id=>({readOnly:true,backupId:id,sheets:[]});
+  assert.equal(post(c,{action:'previewBackupRestore',token:'OWNER',backupId:'TEST'}).plan.backupId,'TEST');
+  assert.deepEqual(writes,[]);
 });
 test('expired, invalid-date, inactive and unknown-role sessions fail closed',()=>{
   for(const [expiry,status,role] of [['bad-date','ACTIVE','OWNER'],['','ACTIVE','OWNER'],[new Date(0),'ACTIVE','OWNER'],[new Date(Date.now()+60000),'LOGGED_OUT','OWNER'],[new Date(Date.now()+60000),'ACTIVE','ROOT']]){

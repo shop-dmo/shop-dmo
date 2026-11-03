@@ -35,6 +35,8 @@ const HEADERS = {
   facebookOwnedComments:['id','targetPostId','externalCommentId','message','createdAt','deletedAt','status','commentKey','jobId','verifiedAt','verificationMethod'],
   facebookBumpTelemetry:['eventId','createdAt','jobId','targetPostId','workerId','phase','outcome','detail','durationMs','attempt','leaseToken','externalCommentId']
 };
+// Additive columns, populated only by an explicit owner/admin confirmation.
+['seals','items'].forEach(key=>HEADERS[key].push('stockVerifiedAt'));
 const DEFAULT_PRODUCT_SUBCATEGORIES=[
   {id:'SEAL-NORMAL',kind:'SEAL',value:'NORMAL',label:'ปกติ',sortOrder:10,enabled:true},
   {id:'SEAL-BASE-HARD',kind:'SEAL',value:'BASE_HARD',label:'เบสยาก',sortOrder:20,enabled:true},
@@ -67,11 +69,14 @@ const MONEY_T_CATEGORY='MONEY_T';
 
 const PUBLIC_PRODUCT_FIELDS=['id','kind','name','aliases','category','section','itemCategory','serviceCategory','description','price','unit','packSize','status','imageUrl','wikiName','badge','sortOrder','wikiTitle','wikiUrl','tags','searchKeywords'];
 const PUBLIC_SETTING_FIELDS=['sealBudgetTitle','sealBudgetDescription','sealBudgetButton','sealBudgetTemplate','shopName','ownerName','promoThreshold','promoReward','categoryDiscountSealPercent','categoryDiscountItemPercent','categoryDiscountServicePercent','orderNotice','orderCopyTemplate','orderCopyShowItems','orderCopyShowPricing','orderCopyShowCategoryDiscounts','orderCopyShowPromotions','orderCopyShowD2','orderCopyShowCustomer','orderCopyShowNotice','websiteIntroText','websiteAnnouncement','websitePromotionText','websiteImportantNotice','productSubcategoriesJson','autoRefreshSeconds','allowOrderSave','showStock','facebookUrl','lineUrl','servicePosterUrl','orderSubmitCooldownSeconds','themeDefault','themePrimaryColor','themeAccentColor','themeBackgroundColor','themeButtonColor','themeImportantColor','enablePWA','offlineCacheHours','mobileCompact','showMobileBottomNav','orderSuccessMessage'];
+PUBLIC_PRODUCT_FIELDS.push('stockVerifiedAt');
+const SHOP_CONTENT_KEYS=['eggPosterUrl','eggHeading','eggHint','eggExample','unlockPosterUrl','unlockHeading','unlockHint','unlockExample'];
+PUBLIC_SETTING_FIELDS.push(...SHOP_CONTENT_KEYS);
 const PUBLIC_PROMOTION_FIELDS=['promotionId','name','type','value','minSpend','buyQty','freeQty','rewardText','startAt','endAt','status','priority','stackable','scope'];
 const ORDER_TRANSITIONS={NEW:['CHECKING','CANCELLED'],CHECKING:['PREPARING','CANCELLED'],PREPARING:['READY','CANCELLED'],READY:['COMPLETED','CANCELLED'],COMPLETED:[],CANCELLED:[]};
 const PASSWORD_ALGO='ITERATED-HMAC-SHA256-6000';
 const KNOWN_INSECURE_OWNER_HASH='77acc467d71ca17d5a480aa17d8b0b05d536139a61c99a08d1573dd81eab7d03';
-const PUBLIC_CACHE_KEY='public-catalog-v20-2-theme-performance-2';
+const PUBLIC_CACHE_KEY='public-catalog-v20-2-shop-content-rare-leaf-1';
 const PUBLIC_CACHE_TTL_SECONDS=75;
 const SESSION_LOCATION_CACHE_TTL_SECONDS=21600;
 const ADMIN_DASHBOARD_CACHE_KEY='admin-dashboard-v20-2-shell-performance-1';
@@ -127,9 +132,10 @@ function doPost(e){
       if(body.action==='failFacebookBumpJob')return failFacebookBumpJob(body,workerActor);
       return disconnectFacebookWorker(body,workerActor);
     }
-    const session=getSession(body.token,true);
+    const session=getSession(body.token,body.action!=='previewBackupRestore');
     if(!session) throw Error('กรุณาเข้าสู่ระบบใหม่');
-    ensureDatabase();
+    // A recovery preview must not create sheets or seed/migrate the database.
+    if(body.action!=='previewBackupRestore')ensureDatabase();
     const actor={userId:String(session.userId),role:String(session.role||'VIEWER')};
     const adminWriteActions=['upsert','delete','softDelete','restoreTrash','permanentDelete','bulkUpdate','saveSettings','deleteProductSubcategory','uploadImage','previewImageZip','applyImageZip','importWikiImage','attachWikiMetadata','upsertPromotion','deletePromotion','createBackup','restoreBackup','setupBackupTrigger','deleteBackup','saveSecurityUser','adjustStock','setStock','syncStock','markOrderSpam','saveFacebookBumpPost','deleteFacebookBumpPost','toggleFacebookBumpPost','queueFacebookBumpNow','cancelFacebookBumpJob','retryFacebookBumpJob','saveFacebookBumpSettings','pauseAllFacebookBumps','resumeAllFacebookBumps','ensureFacebookBumpTrigger','disableFacebookBumpTrigger','queueFacebookWorkerCommand','pairFacebookWorker','revokeFacebookWorkerPair'];
     const staffWriteActions=['updateOrder','updateOrderItemPick','updateCustomer','addCustomerInteraction'];
@@ -171,6 +177,7 @@ function doPost(e){
       case'saveSecurityUser': return saveSecurityUser(body,actor);
       case'changeOwnerPassword': return changeOwnerPassword(body,actor);
       case'createBackup': return createBackupAction(body,actor);
+      case'previewBackupRestore': requireRole(body.token,['OWNER','ADMIN']);return output({ok:true,plan:previewBackupRestore(body.backupId)});
       case'restoreBackup': return restoreBackupAction(body,actor);
       case'setupBackupTrigger': return setupBackupTriggerAction(body,actor);
       case'deleteBackup': return deleteBackupAction(body,actor);
@@ -459,7 +466,23 @@ function readPublic(){
   const allItems=existingRows(SHEETS.items).filter(x=>x.id&&x.name).map(normalizeItem).filter(x=>!['HIDDEN','INACTIVE'].includes(String(x.status))),gameItems=allItems.filter(x=>x.kind==='ITEM').map(publicProduct),moneyT=allItems.find(x=>x.kind==='TMONEY');
   const services=existingRows(SHEETS.services).filter(x=>x.id&&x.name).map(normalizeService).filter(x=>!['HIDDEN','INACTIVE'].includes(String(x.status))).map(publicProduct);
   const promotions=existingRows(SHEETS.promotions).filter(x=>x.promotionId&&x.name).map(normalizePromotion).filter(p=>p.status==='ACTIVE').map(publicPromotion);
-  const result={seals,gameItems,services,moneyT:moneyT?publicProduct(moneyT):null,settings:publicSettings(),promotions,stockUpdatedAt:stockUpdatedAt()};putCachedPublic(result,cacheKey);return result;
+  const result={seals,gameItems,services,moneyT:moneyT?publicProduct(moneyT):null,settings:publicSettings(),promotions,rareLeafSet:rareSealLeafSet(seals),stockUpdatedAt:stockUpdatedAt()};putCachedPublic(result,cacheKey);return result;
+}
+// Derived quote only: public sale prices, no catalog writes or stock reservation.
+function rareSealLeafSet(seals){
+  const rows=(seals||[]).filter(p=>['BASE_HARD','SUSA'].includes(p.section)&&!['INACTIVE','HIDDEN'].includes(p.status)),members=[],excluded=[],seen=new Set();let micros=0,priced=true,available=true;
+  for(const p of rows){
+    if(!p.id||seen.has(p.id))continue;seen.add(p.id);
+    if(p.unit!=='ใบ'){excluded.push({id:p.id,name:p.name,reason:'ขายยกชุด ไม่ขายแยก 1 ใบ'});continue;}
+    const price=Number(p.price),value=Math.round(price*1000000);
+    if(p.price===''||p.price==null||!Number.isFinite(price)||price<=0||!Number.isSafeInteger(value)||value<=0)priced=false;else micros+=value;
+    const inStock=p.status==='ACTIVE'&&p.availableStock!==''&&p.availableStock!=null&&Number.isFinite(Number(p.availableStock))&&Number(p.availableStock)>=1;
+    available=available&&inStock;
+    members.push({id:p.id,name:p.name,category:p.category,section:p.section,quantity:1,unit:'ใบ',price:Number.isFinite(price)&&price>0?price:null});
+  }
+  members.sort((a,b)=>String(a.section).localeCompare(String(b.section))||Number(a.price)-Number(b.price)||String(a.id).localeCompare(String(b.id)));
+  priced=priced&&members.length>0&&Number.isSafeInteger(micros);const rawTotal=priced?micros/1000000:null,price=priced?Math.ceil(micros/1000000):null;
+  return{id:'seal-set-rare-one-leaf',name:'เซ็ตซีล เบสยาก + ซูซา ตัวละ 1 ใบ',quoteOnly:true,rounding:'CEIL_WHOLE_BAHT',members,excluded,rawTotal,price,roundingAmount:priced?(price*1000000-micros)/1000000:null,available:priced&&available};
 }
 function invalidateAdminDashboardCaches(){advanceCacheGeneration([ADMIN_DASHBOARD_CACHE_KEY,ADMIN_DASHBOARD_SETTINGS_CACHE_KEY,ADMIN_SCOPED_SETTINGS_CACHE_KEY]);}
 function cachedAdminDashboardSettings(forceRefresh){
@@ -591,6 +614,13 @@ function upsert(record,actor){return withLock(()=>{
   const values=s.getDataRange().getValues(),idIndex=headers.indexOf('id');let rowIndex=-1;
   for(let i=1;i<values.length;i++){if(String(values[i][idIndex])===String(record.id)){rowIndex=i+1;break;}}
   if(record.kind==='SEAL'&&rowIndex>0){const oldStockUnit=String(values[rowIndex-1][headers.indexOf('stockUnit')]||'');if(oldStockUnit!==String(record.stockUnit||''))throw Error('ห้ามเปลี่ยนหน่วยสต๊อกผ่านฟอร์มสินค้า กรุณาใช้ขั้นตอนสำรองและแปลงสต๊อก');}
+  const previousRecord=rowIndex>0?Object.fromEntries(headers.map((key,i)=>[key,values[rowIndex-1][i]])):{};
+  delete record.stockVerifiedAt;
+  if(['SEAL','ITEM','TMONEY'].includes(record.kind)){
+    const changed=['stock','reservedStock','status','packSize','unit'].some(key=>Object.prototype.hasOwnProperty.call(record,key)&&String(record[key]??'')!==String(previousRecord[key]??''));
+    if(record.confirmStockReviewed===true){if(record.stock===''||!Number.isFinite(Number(record.stock))||Number(record.stock)<0)throw Error('ต้องระบุสต๊อกที่ตรวจแล้วก่อนยืนยัน');record.stockVerifiedAt=new Date().toISOString();}
+    else record.stockVerifiedAt=changed?'':previousRecord.stockVerifiedAt||'';
+  }
   const row=headers.map((k,index)=>k==='aliases'&&Array.isArray(record.aliases)?record.aliases.join('|'):(Object.prototype.hasOwnProperty.call(record,k)?record[k]??'':rowIndex>0?values[rowIndex-1][index]:''));
   if(rowIndex<0&&record.kind==='SEAL'){
     for(let i=1;i<values.length;i++)if(!String(values[i][idIndex]||'').trim()){rowIndex=i+1;break;}
@@ -762,6 +792,7 @@ function normalizeSealSets(value){
 function saveSettings(settingsObj,actor,expectedSubcategoriesJson){return withLock(()=>{
   const s=sheet(SHEETS.settings,HEADERS.settings),values=s.getDataRange().getValues(),submitted={...(settingsObj||{})},rowByKey=new Map(),categoryDiscountKeys=new Set(['categoryDiscountSealPercent','categoryDiscountItemPercent','categoryDiscountServicePercent']),themeColorKeys=new Set(['themePrimaryColor','themeAccentColor','themeBackgroundColor','themeButtonColor','themeImportantColor']);for(let i=1;i<values.length;i++)rowByKey.set(String(values[i][0]),i+1);
   if(Object.prototype.hasOwnProperty.call(submitted,'sealSetsJson'))submitted.sealSetsJson=JSON.stringify(normalizeSealSets(submitted.sealSetsJson));
+  SHOP_CONTENT_KEYS.forEach(key=>{if(!Object.prototype.hasOwnProperty.call(submitted,key))return;const value=String(submitted[key]||'').trim();if(key.endsWith('Url')){if(value&&(!/^https:\/\/[^\s<>]+$/i.test(value)||value.length>2000||/^https:\/\/[^/]*@/i.test(value)))throw Error('URL โปสเตอร์ต้องเป็น HTTPS และไม่มีข้อมูลเข้าสู่ระบบ');submitted[key]=value;}else submitted[key]=safeSheetText(value,3000);});
   ['sealBudgetTitle','sealBudgetDescription','sealBudgetButton','sealBudgetTemplate'].forEach(key=>{if(Object.prototype.hasOwnProperty.call(submitted,key))submitted[key]=safeSheetText(String(submitted[key]||''),3000);});
   if(Object.prototype.hasOwnProperty.call(submitted,'productSubcategoriesJson')){const previous=productSubcategoriesFromSettingsValues(values),next=normalizeProductSubcategories(submitted.productSubcategoriesJson);if(expectedSubcategoriesJson!==undefined&&JSON.stringify(normalizeProductSubcategories(expectedSubcategoriesJson))!==JSON.stringify(previous))throw Error('หมวดย่อยถูกแก้ไขจากแท็บอื่นแล้ว กรุณาโหลดล่าสุดก่อนบันทึกอีกครั้ง');assertProductSubcategoryRemovalsUnused(previous,next);submitted.productSubcategoriesJson=JSON.stringify(next);}
   Object.keys(submitted).forEach(k=>{let value=categoryDiscountKeys.has(k)?Math.max(0,Math.min(100,number(submitted[k]))):submitted[k];if(themeColorKeys.has(k)){value=String(value||'').trim().toUpperCase();if(!/^#[0-9A-F]{6}$/.test(value))value=DEFAULT_SETTINGS[k];}if(k==='themeDefault')value=String(value).toUpperCase()==='LIGHT'?'LIGHT':'DARK';if(k==='orderCopyTemplate')value=safeSheetText(String(value||''),12000);if(['websiteIntroText','websiteAnnouncement','websitePromotionText','websiteImportantNotice'].includes(k))value=safeSheetText(String(value||''),3000);const row=rowByKey.get(k);if(!row){s.appendRow([k,value,'']);rowByKey.set(k,s.getLastRow());}else s.getRange(row,2).setValue(value);if(categoryDiscountKeys.has(k))s.getRange(rowByKey.get(k),2).setNumberFormat('0.##');});if(Object.prototype.hasOwnProperty.call(submitted,'sessionDays'))PropertiesService.getScriptProperties().setProperty('SESSION_DAYS',String(submitted.sessionDays));
@@ -1103,6 +1134,11 @@ function importWikiImage(b){
   log('IMPORT_WIKI_IMAGE','IMAGE','',name,'Source: https://dmowiki.com/Seal_Master');return output({ok:true,imageUrl,source:'https://dmowiki.com/Seal_Master'});
 }
 
+function previewBackupRestore(backupId){
+  const record=existingRows(SHEETS.backups).find(row=>String(row.backupId)===String(backupId));if(!record||!record.fileId||record.status!=='READY')throw Error('ไม่พบสำเนาที่พร้อมใช้งาน');
+  const source=SpreadsheetApp.openById(String(record.fileId)),target=ss(),skip=new Set([SHEETS.backups,SHEETS.sessions,SHEETS.users]);
+  return{readOnly:true,backupId:String(record.backupId),warning:'แผนนี้ไม่กู้คืนจริง การ Restore จริงจะเขียนทับตารางที่มีในสำเนา ต้องตรวจออเดอร์ใหม่และทดลองบนสำเนาแยกก่อน',sheets:Object.values(SHEETS).filter(name=>!skip.has(name)).map(name=>{const a=source.getSheetByName(name),b=target.getSheetByName(name);return{name,sourceRows:a?Math.max(0,a.getLastRow()-1):0,targetRows:b?Math.max(0,b.getLastRow()-1):0,wouldReplace:!!a};})};
+}
 function backupFolder(){let folders=DriveApp.getFoldersByName('DMO-Toolbox-Backups');return folders.hasNext()?folders.next():DriveApp.createFolder('DMO-Toolbox-Backups');}
 function backupTriggerActive(){try{return ScriptApp.getProjectTriggers().some(t=>t.getHandlerFunction()==='scheduledBackup');}catch(e){return false;}}
 function listBackups(){return rows(SHEETS.backups).slice().reverse().map(x=>({...x,sizeBytes:number(x.sizeBytes)}));}

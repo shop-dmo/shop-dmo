@@ -206,7 +206,8 @@ check('31. Category discount settings UI and additive migration', () => {
   });
   assert(gas.includes("DATABASE_VERSION+'-gate-a-5'"),'schema gate ไม่ได้บังคับ seed Settings ใหม่แบบ additive');
   assert(gas.includes("setNumberFormat('0.##')"),'เซลล์ส่วนลดอาจสืบรูปแบบวันที่จาก Settings แถวก่อนหน้า');
-  const settingsSource=app.slice(app.indexOf('function adminSettingsBase'),app.indexOf('function adminLogs'));
+  const contentSettingsSource=app.slice(app.indexOf('const SHOP_CONTENT_FIELDS='),app.indexOf('function recoveryGuidePanel'));
+  const settingsSource=contentSettingsSource+app.slice(app.indexOf('function adminSettingsBase'),app.indexOf('function adminLogs'));
   const settingsContext={state:{adminData:{settings:{categoryDiscountSealPercent:5,categoryDiscountItemPercent:10,categoryDiscountServicePercent:0},security:{actor:{role:'OWNER'}}},servicePosterUpload:null},shopIdentity:()=>({shopName:'',ownerName:''}),configuredSettingText:(settings,key,fallback)=>Object.prototype.hasOwnProperty.call(settings,key)?String(settings[key]??''):fallback,settingEnabled:(settings,key,fallback=true)=>Object.prototype.hasOwnProperty.call(settings,key)?settings[key]!==false&&String(settings[key]).toUpperCase()!=='FALSE':fallback,safeExternalUrl:value=>String(value||''),themePalette:()=>({primary:'#2588E8',accent:'#15B7D7',background:'#061121',button:'#0B1C34',important:'#45DEF2'}),DEFAULT_ORDER_COPY_TEMPLATE:'{title}\n{items}\n{pricing}\n{promotions}\n{customer}\n{notice}',html:value=>String(value),String};
   vm.createContext(settingsContext);
   settingsContext.sealSetOffers=()=>[];settingsContext.state.seals=[];

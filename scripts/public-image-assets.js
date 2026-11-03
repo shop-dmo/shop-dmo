@@ -11,4 +11,5 @@ function asset(value){
 }
 const productImages=Object.fromEntries(Object.entries(urls).map(([url,file])=>[url,asset(file)]));
 const sealImageMatches=Object.fromEntries(Object.entries(matches).map(([id,row])=>[id,{name:row.name,path:asset(row.path)}]));
+Object.values(read('shop-artwork.json')).forEach(asset);
 module.exports={files,productImages,sealImageMatches};

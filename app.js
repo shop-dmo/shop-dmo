@@ -408,6 +408,7 @@ async function apiPost(payload) {
 }
 
 function applyPublicData(data,offline=false){
+  state.rareLeafSet=data.rareLeafSet||null;
   state.seals=(data.seals||[]).map(product=>({...product,kind:'SEAL'})).filter(isVisible);
   state.items=(data.gameItems||[]).map(product=>({...product,kind:'ITEM'})).filter(isVisible);
   state.services=(data.services||[]).map(product=>({...product,kind:'SERVICE'})).filter(isVisible);
@@ -556,7 +557,7 @@ function sealSetCard(offer){
 }
 function sealSetsPage(){
   const offers=sealSetOffers().sort((a,b)=>b.price-a.price||String(a.name).localeCompare(String(b.name),'th')),groups=[...SEAL_SET_CATEGORIES,'ALL'].filter(cat=>state.category==='ALL'||cat===state.category),query=state.search.trim().toLocaleLowerCase('th');
-  return `<div class="grid-main"><section class="panel"><h2 class="panel-title">📦 เซ็ตซีลของร้าน</h2><p class="product-meta">เซ็ตเริ่มต้น ตัวละ 1,000 ใบ · เซ็ตชุดใหญ่ ตัวละ 3,000 ใบ ยกเว้นสตาร์มอน (HT) และโกสึมอน (DE) ตัวละ 1,000 ใบ รวมถึงเซ็ตครบทุกสาย<br>คัดซีลเริ่มต้นราคาน้อยไปมากในแต่ละสาย จากซีลปกติชุด 1,000 ใบที่มีสต๊อกยืนยัน ราคาคิดตามร้าน ณ ตอนโหลดข้อมูล กรุณาดูรายชื่อก่อนเพิ่ม</p><div class="chip-row">${['ALL',...SEAL_SET_CATEGORIES].map(cat=>`<button class="filter-chip ${state.category===cat?'active':''}" data-seal-line="${cat}" data-cat="${cat}">${cat==='ALL'?'ทุกสาย':cat}</button>`).join('')}</div><input class="search" id="searchInput" placeholder="ค้นหาชื่อเซ็ตหรือซีลในเซ็ต" value="${html(state.search)}">${groups.map(cat=>{const rows=offers.filter(o=>o.category===cat&&(!query||`${o.name} ${o.members.map(p=>p.name).join(' ')}`.toLocaleLowerCase('th').includes(query)));return rows.length?`<section class="seal-set-group" data-seal-line="${cat}"><h3>${cat==='ALL'?'เซ็ตครบทุกสาย':`ซีลสาย ${cat}`}</h3><div class="seal-set-grid">${rows.map(sealSetCard).join('')}</div></section>`:'';}).join('')||'<div class="empty">ยังไม่มีซีลปกติชุด 1,000 ใบที่มีสต๊อกยืนยันในสายนี้</div>'}</section>${cartPanel()}</div>`;
+  return `<div class="grid-main"><section class="panel"><h2 class="panel-title">📦 เซ็ตซีลของร้าน</h2><p class="product-meta">เซ็ตเริ่มต้น ตัวละ 1,000 ใบ · เซ็ตชุดใหญ่ ตัวละ 3,000 ใบ ยกเว้นสตาร์มอน (HT) และโกสึมอน (DE) ตัวละ 1,000 ใบ รวมถึงเซ็ตครบทุกสาย<br>คัดซีลเริ่มต้นราคาน้อยไปมากในแต่ละสาย จากซีลปกติชุด 1,000 ใบที่มีสต๊อกยืนยัน ราคาคิดตามร้าน ณ ตอนโหลดข้อมูล กรุณาดูรายชื่อก่อนเพิ่ม</p><div class="chip-row">${['ALL',...SEAL_SET_CATEGORIES].map(cat=>`<button class="filter-chip ${state.category===cat?'active':''}" data-seal-line="${cat}" data-cat="${cat}">${cat==='ALL'?'ทุกสาย':cat}</button>`).join('')}</div><input class="search" id="searchInput" placeholder="ค้นหาชื่อเซ็ตหรือซีลในเซ็ต" value="${html(state.search)}">${state.category==='ALL'?rareLeafSetCard(query):''}${groups.map(cat=>{const rows=offers.filter(o=>o.category===cat&&(!query||`${o.name} ${o.members.map(p=>p.name).join(' ')}`.toLocaleLowerCase('th').includes(query)));return rows.length?`<section class="seal-set-group" data-seal-line="${cat}"><h3>${cat==='ALL'?'เซ็ตครบทุกสาย':`ซีลสาย ${cat}`}</h3><div class="seal-set-grid">${rows.map(sealSetCard).join('')}</div></section>`:'';}).join('')||'<div class="empty">ยังไม่มีซีลปกติชุด 1,000 ใบที่มีสต๊อกยืนยันในสายนี้</div>'}</section>${cartPanel()}</div>`;
 }
 function addSealSet(id,quantity){
   const offer=sealSetOffers().find(o=>o.id===id);if(!offer)return;
@@ -618,7 +619,7 @@ function sectionLabel(section) {
 }
 
 function saleUnit(product){return String(product.unit||(product.kind==='SEAL'?'ชุด':product.kind==='SERVICE'?'ครั้ง':product.kind==='TMONEY'?'T':'ชิ้น'));}
-function sealCardPrice(product){return ['SUSA','BASE_HARD'].includes(String(product.section))&&saleUnit(product)==='ใบ'?`${Number(product.price).toLocaleString('th-TH',{maximumFractionDigits:6})} บาท/ใบ`:`${money(sealPackPrice(product))} บาท`;}
+function sealCardPrice(product){const leaf=Number(product.price).toLocaleString('th-TH',{maximumFractionDigits:6}),pack=`${money(sealPackPrice(product))} บาท/ชุด · ${money(Number(product.packSize)||1)} ใบ`;return saleUnit(product)!=='ใบ'?pack:['SUSA','BASE_HARD'].includes(String(product.section))?`${leaf} บาท/ใบ · ${pack}`:`${pack} (${leaf} บาท/ใบ)`;}
 function formatProductPrice(product){const unit=saleUnit(product),pack=Number(product.packSize)||1000,price=product.kind==='SEAL'&&unit==='ใบ'?Number(product.price).toLocaleString('th-TH',{maximumFractionDigits:6}):money(product.price);return `${price} บาท/${html(unit)}${unit==='ชุด'?` (${money(pack)} ใบ)`:product.kind==='SEAL'&&pack>1?` · ${money(sealPackPrice(product))} บาท/${money(pack)} ใบ`:''}`;}
 function sealSaleNote(product){if(product.kind!=='SEAL')return'';return saleUnit(product)==='ชุด'?`1 ชุด = ${money(product.packSize||1000)} ใบ`:'ราคาต่อ 1 ใบ';}
 
@@ -650,7 +651,7 @@ function productCard(product) {
       <div class="product-price">${product.kind==='SEAL'?sealCardPrice(product):formatProductPrice(product)}</div>
       ${product.tags ? `<div class="tag-line">${String(product.tags).split('|').filter(Boolean).slice(0,4).map((tag)=>`<span class="mini-tag">${html(tag)}</span>`).join('')}</div>` : ''}
       ${description ? `<details class="product-details"><summary>รายละเอียด</summary>${description}</details>` : ''}
-      <div class="product-status">${stockText(product)}</div>
+      <div class="product-status">${stockText(product)}</div>${stockVerificationMarkup(product)}
       ${product.wikiUrl ? `<a class="wiki-link" href="${html(product.wikiUrl)}" target="_blank" rel="noopener">📚 ดูข้อมูล DMO Wiki</a>` : ''}
     </div>
     <div class="product-actions">
@@ -662,13 +663,82 @@ function productCard(product) {
   </article>`;
 }
 
+function rareLeafSetCard(query=''){
+  const offer=state.rareLeafSet;if(!offer?.members?.length||query&&!`${offer.name} ${offer.members.map(p=>p.name).join(' ')}`.toLocaleLowerCase('th').includes(query))return '';
+  const priced=Number.isFinite(offer.price)&&offer.price>0&&Number.isFinite(offer.rawTotal),counts=section=>offer.members.filter(p=>p.section===section).length;
+  return `<section class="rare-leaf-set seal-set-grid"><article class="seal-set-card">
+    <img class="seal-set-image" src="product-85eef86025894feefb5500319ec3adeef39597cf0e6e54c290d09ac2cb9e2a12.png" alt="ภาพประกอบเซ็ตซีล เบสยาก + ซูซา ตัวละ 1 ใบ" loading="lazy">
+    <div class="seal-set-heading"><span class="badge">เซ็ตพิเศษรวม 2 หมวด</span><h3>${html(offer.name)}</h3></div>
+    <p>เบสยาก ${counts('BASE_HARD')} ตัว + ซูซา ${counts('SUSA')} ตัว · ทุกตัวในรายชื่ออย่างละ 1 ใบ</p>
+    <div class="product-price">${priced?`${money(offer.price)} บาท/เซ็ต`:'รอร้านตรวจราคา'}</div>
+    ${priced?`<small>รวม ${Number(offer.rawTotal).toLocaleString('th-TH',{maximumFractionDigits:6})} บาท → ปัดขึ้นบาทเต็ม ${money(offer.price)} บาท</small>`:''}
+    <details><summary>ดูรายชื่อซีลตัวละ 1 ใบ (${offer.members.length})</summary>
+      <p class="product-meta">ราคาก่อนส่วนลด/โปรโมชั่น • ${offer.available?'ร้านต้องตรวจสต๊อกอีกครั้งก่อนยืนยัน':'บางตัวต้องตรวจสต๊อก — ส่งสอบถามร้านก่อน'} • ภาพเป็นภาพประกอบ ไม่ใช่รายชื่อทั้งหมด</p>
+      ${offer.excluded?.length?`<p class="product-meta">ไม่รวม ${offer.excluded.map(p=>html(p.name)).join(' / ')}: ยังขายยกชุด ไม่ขายแยก 1 ใบ</p>`:''}
+      <ol>${offer.members.map(p=>`<li><b>${html(p.name)}</b><span>${html(sectionLabel(p.section))} · 1 ใบ · ${p.price==null?'สอบถามราคา':Number(p.price).toLocaleString('th-TH',{maximumFractionDigits:6})+' บาท'}</span></li>`).join('')}</ol>
+    </details>
+    <div class="product-actions"><input id="rareLeafSetQty" class="qty-input" aria-label="จำนวนเซ็ตเบสยากและซูซา" type="number" min="1" max="999" step="1" value="1"><button class="btn primary" id="copyRareLeafSet" ${!priced||state.offline?'disabled':''}>คัดลอกขอเซ็ตนี้</button></div>
+    <small>ยอดขอเซ็ต <strong id="rareLeafSetTotal">${priced?money(offer.price)+' บาท':'รอตรวจราคา'}</strong> • แยกจากตะกร้าปกติ รอร้านยืนยันก่อนซื้อ ไม่จองสต๊อกอัตโนมัติ</small>
+    <textarea id="rareLeafSetMessage" readonly hidden aria-label="ข้อความขอเซ็ตเบสยากและซูซา"></textarea><p id="rareLeafSetNotice" role="status" aria-live="polite"></p>
+  </article></section>`;
+}
+function rareLeafSetMessage(offer,count){
+  count=Number(count);if(offer?.id!=='seal-set-rare-one-leaf'||!offer.quoteOnly||!offer.members?.length||!Number.isSafeInteger(count)||count<1||count>999||!Number.isFinite(offer.price)||offer.price<=0)return '';
+  return `ขอสอบถาม ${offer.name}\nจำนวน ${count} เซ็ต · ต่อเซ็ต: เบสยากและซูซาทุกตัวในรายชื่ออย่างละ 1 ใบ\n`+offer.members.map(p=>`${p.name} ${count} ใบ`).join('\n')+`\nรวมก่อนปัด ${Number(offer.rawTotal).toLocaleString('th-TH',{maximumFractionDigits:6})} บาท/เซ็ต\nปัดขึ้นบาทเต็ม ${money(offer.price)} บาท/เซ็ต × ${count} = ${money(offer.price*count)} บาท (ก่อนส่วนลด/โปรโมชั่น)`+(offer.excluded?.length?`\nไม่รวม ${offer.excluded.map(p=>p.name).join(' / ')} เพราะขายยกชุด`:'')+'\nรายการนี้แยกจากตะกร้าปกติ กรุณาร้านตรวจรายชื่อ ราคา และสต๊อกก่อนยืนยัน ยังไม่ได้จองหรือสั่งซื้อ';
+}
+function stockVerificationMarkup(product){
+  if(product.kind==='SERVICE')return '';
+  const at=Date.parse(product.stockVerifiedAt||''),age=Date.now()-at;
+  const message=state.offline?'ข้อมูลแคช/ออฟไลน์ • ทักร้านยืนยันก่อน':!Number.isFinite(at)||age<0?'ร้านยังไม่ได้บันทึกเวลาตรวจสต๊อก':`ร้านตรวจสต๊อก ${new Date(at).toLocaleString('th-TH')}${age>86400000?' • เกิน 24 ชั่วโมง กรุณาสอบถามอีกครั้ง':''}`;
+  return `<small class="stock-verification">${html(message)} · ไม่ใช่เวลาที่โหลดหน้าเว็บ</small>`;
+}
+function sealBudgetPanel(){return `<section class="seal-budget-help"><h2>${html(configuredSettingText(state.settings,'sealBudgetTitle','🌟 มือใหม่? ให้ร้านจัดซีลตามงบ'))}</h2><p>${html(configuredSettingText(state.settings,'sealBudgetDescription','เลือกซีลพื้นฐานจากราคาถูกไปแพง จนงบไม่พอรายการถัดไป'))}</p><div class="seal-budget-controls"><label for="sealBudget">งบประมาณ (บาท)<input id="sealBudget" type="number" min="1" max="10000000" step="1" placeholder="เช่น 500"></label><button class="btn primary" id="sealBudgetSend" type="button">${html(configuredSettingText(state.settings,'sealBudgetButton','💬 คัดลอกและเปิด Messenger'))}</button></div><label for="sealBudgetLine">สายที่ต้องการ</label><select id="sealBudgetLine"><option value="ALL">ทุกสาย</option>${SEAL_SET_CATEGORIES.map(cat=>`<option>${cat}</option>`).join('')}</select><button class="btn" id="sealBudgetSuggest" type="button">ลองจัดรายการตามงบ</button><div id="sealBudgetProposal" role="status" aria-live="polite"></div><button class="btn small" id="copySealProposal" type="button" disabled>คัดลอกรายการแนะนำ</button><small>เฉพาะซีลพื้นฐาน (ปกติ) ชุด 1,000 ใบ • เรียงราคาต่ำไปสูง ตัวละ 1 ชุดจนงบไม่พอ • ใช้สต๊อกที่ร้านตรวจภายใน 24 ชั่วโมง • ก่อนส่วนลด/โปรโมชั่น ไม่ยืนยันซื้อหรือจอง • สูงสุด 250 รายการ</small><textarea id="sealBudgetMessage" readonly hidden aria-label="ข้อความขอให้ร้านจัดซีล"></textarea></section>`;}
+function suggestSealBudget(products,budget,line='ALL',options={}){
+  const cents=Math.floor(Number(budget)*100),now=options.now??Date.now();
+  if(options.offline||!Number.isSafeInteger(cents)||cents<100||cents>1000000000||!['ALL',...SEAL_SET_CATEGORIES].includes(line))return{items:[],total:0,reason:'งบหรือสายไม่ถูกต้อง หรือกำลังใช้ข้อมูลออฟไลน์'};
+  const candidates=products.filter(p=>{const age=now-Date.parse(p.stockVerifiedAt||'');return p.kind==='SEAL'&&p.section==='NORMAL'&&Number(p.packSize)===1000&&p.status==='ACTIVE'&&Number.isFinite(age)&&age>=0&&age<=86400000&&(line==='ALL'||p.category===line)&&Number.isFinite(sealPackPrice(p))&&sealPackPrice(p)>0&&availableStock(p)!==''&&Number(availableStock(p))>=sealQuantityPerSet(p,1);}).sort((a,b)=>sealPackPrice(a)-sealPackPrice(b)||String(a.id).localeCompare(String(b.id)));
+  let spent=0;const items=[],seen=new Set();for(const p of candidates){const price=Math.ceil(sealPackPrice(p)*100);if(seen.has(p.id))continue;if(spent+price>cents||items.length>=250)break;seen.add(p.id);spent+=price;items.push({id:p.id,name:p.name,category:p.category,leaves:1000,quantity:sealQuantityPerSet(p,1),unit:saleUnit(p),amount:price/100});}
+  return{items,total:spent/100,remaining:(cents-spent)/100,reason:items.length?'รายการตัวอย่างให้ร้านตรวจยืนยัน ไม่ใช่ชุดที่ดีที่สุดสำหรับทุกตัวละคร':'ยังไม่มีรายการที่ผ่านเงื่อนไขในงบนี้ ทักร้านให้ช่วยจัดได้'};
+}
+const SHOP_CONTENT_FIELDS=[['eggPosterUrl','URL โปสเตอร์ไข่'],['eggHeading','หัวข้อสอบถามไข่'],['eggHint','คำแนะนำไข่'],['eggExample','ตัวอย่างข้อความไข่'],['unlockPosterUrl','URL โปสเตอร์ไอเทมปลดร่าง'],['unlockHeading','หัวข้อสอบถามไอเทมปลดร่าง'],['unlockHint','คำแนะนำไอเทมปลดร่าง'],['unlockExample','ตัวอย่างข้อความไอเทมปลดร่าง']];
+function shopContentSettingsPanel(settings){return `<section class="panel"><h2>โปสเตอร์และข้อความสอบถาม</h2><p>URL รูปต้องเป็น HTTPS • เว้นว่างเพื่อใช้ภาพหรือข้อความเดิม • โปสเตอร์บริการแก้ได้ในส่วนตั้งค่าร้านด้านบน</p>${SHOP_CONTENT_FIELDS.map(([key,label])=>`<label class="full">${html(label)}<input id="setContent${key}" data-content-setting="${key}" maxlength="${key.endsWith('Url')?2000:3000}" value="${html(settings[key]||'')}"></label>`).join('')}<p>บันทึกด้วยปุ่มบันทึกตั้งค่า ข้อความไม่มีผลต่อราคาและสต๊อก</p></section>`;}
+function recoveryGuidePanel(){
+  const backups=(state.adminData?.automation?.backups||[]).filter(b=>b.status==='READY'),plan=state.backupRestorePreview;
+  return `<section class="panel"><h2>ตรวจแผนกู้คืนก่อนลงมือ</h2><ol><li>หยุดรับแก้ไขชั่วคราวและสำรองข้อมูลล่าสุดก่อน</li><li>เลือกสำเนา ตรวจวันและตารางเทียบกับข้อมูลปัจจุบัน</li><li>ทดสอบกู้คืนในสำเนาแยกก่อน ไม่ทับร้านจริง</li><li>ให้เจ้าของยืนยันก่อนใช้ Restore จริง และตรวจออเดอร์/สต๊อกหลังทำ</li></ol><p>การตรวจแผนด้านล่างอ่านอย่างเดียว ไม่สร้าง Backup ไม่กู้คืน ไม่ลบไฟล์ และไม่พิสูจน์ว่ากู้คืนจริงได้แล้ว</p><select id="recoveryBackup" aria-label="สำเนาสำหรับตรวจแผน">${backups.map(b=>`<option value="${html(b.backupId)}" ${String(plan?.backupId)===String(b.backupId)?'selected':''}>${html(b.fileName||b.backupId)}</option>`).join('')}</select><button class="btn" id="previewRecovery" ${backups.length?'':'disabled'}>ตรวจแผน (ไม่เขียนข้อมูล)</button>${plan?`<p role="status">แผนของ ${html(plan.backupId||'')} · ${html(plan.warning)}</p><ul>${(plan.sheets||[]).map(row=>`<li>${html(row.name)}: สำเนา ${money(row.sourceRows)} แถว / ปัจจุบัน ${money(row.targetRows)} แถว · ${row.wouldReplace?'จะเขียนทับหาก Restore จริง':'ไม่มีในสำเนา — ข้าม'}</li>`).join('')}</ul>`:''}</section>`;
+}
+function bindShopImprovements(){
+  const rareQty=document.getElementById('rareLeafSetQty'),rareCopy=document.getElementById('copyRareLeafSet');
+  if(rareQty)rareQty.oninput=()=>{const text=rareLeafSetMessage(state.rareLeafSet,rareQty.value);document.getElementById('rareLeafSetTotal').textContent=text?money(state.rareLeafSet.price*Number(rareQty.value))+' บาท':'ระบุจำนวนเต็ม 1–999 เซ็ต';const output=document.getElementById('rareLeafSetMessage');output.hidden=true;output.value='';document.getElementById('rareLeafSetNotice').textContent='';};
+  if(rareCopy)rareCopy.onclick=async()=>{
+    if(rareCopy.disabled||state.offline)return;const count=Number(rareQty.value);if(!rareLeafSetMessage(state.rareLeafSet,count))return toast('ระบุจำนวนเต็ม 1–999 เซ็ต');rareCopy.disabled=true;rareQty.disabled=true;
+    try{
+      const data=await apiGet(false),fresh=data.rareLeafSet;
+      if(!rareCopy.isConnected||state.offline)return;
+      if(!fresh||JSON.stringify(fresh)!==JSON.stringify(state.rareLeafSet)){state.rareLeafSet=fresh||null;renderPreservingScroll();return toast('ข้อมูลเซ็ตเปลี่ยนแล้ว กรุณาตรวจรายการล่าสุดและกดขอเซ็ตอีกครั้ง');}
+      const text=rareLeafSetMessage(fresh,count),output=document.getElementById('rareLeafSetMessage');output.value=text;output.hidden=false;
+      try{await copyText(text,'คัดลอกคำขอเซ็ตแล้ว ยังไม่ได้ส่งข้อความหรือจองสินค้า');document.getElementById('rareLeafSetNotice').textContent='คัดลอกแล้ว นำไปวางในแชตร้านเพื่อให้ตรวจยืนยัน';}
+      catch(e){output.focus();output.select();document.getElementById('rareLeafSetNotice').textContent='กรุณาคัดลอกข้อความด้านบนด้วยตัวเอง';}
+    }catch(e){toast(e.message);}
+    finally{if(rareCopy.isConnected)rareCopy.disabled=state.offline;if(rareQty.isConnected)rareQty.disabled=false;}
+  };
+  const calculate=()=>suggestSealBudget(state.seals,document.getElementById('sealBudget')?.value,document.getElementById('sealBudgetLine')?.value,{offline:state.offline});
+  const suggest=document.getElementById('sealBudgetSuggest');if(suggest)suggest.onclick=()=>{const result=calculate(),host=document.getElementById('sealBudgetProposal');host.textContent=result.reason;const list=document.createElement('ul');for(const p of result.items){const li=document.createElement('li');li.textContent=`${p.name} (${p.category}) 1,000 ใบ · ${money(p.amount)} บาท`;list.append(li);}host.append(list);if(result.items.length)host.append(document.createTextNode(`รวมก่อนส่วนลด ${money(result.total)} บาท`));document.getElementById('copySealProposal').disabled=!result.items.length;};
+  const copy=document.getElementById('copySealProposal');if(copy)copy.onclick=async()=>{const result=calculate();if(!result.items.length){copy.disabled=true;return toast(result.reason);}const text='ขอให้ร้านตรวจรายการซีลตามงบ (ไม่ยืนยันซื้อ)\n'+result.items.map(p=>`${p.name} 1,000 ใบ · ${money(p.amount)} บาท`).join('\n')+`\nรวมก่อนส่วนลด ${money(result.total)} บาท\nกรุณายืนยันราคาและสต๊อกล่าสุด`;const output=document.getElementById('sealBudgetMessage');output.value=text;output.hidden=false;try{await copyText(text,'คัดลอกรายการล่าสุดแล้ว ยังไม่ได้ส่งหรือจองสินค้า');}catch(e){output.focus();output.select();toast('กรุณาคัดลอกข้อความด้วยตัวเอง');}};
+  const preview=document.getElementById('previewRecovery');if(preview)preview.onclick=async()=>{if(preview.disabled)return;preview.disabled=true;try{const result=await apiPost({action:'previewBackupRestore',token:state.adminToken,backupId:document.getElementById('recoveryBackup').value});state.backupRestorePreview=result.plan;render();}catch(e){toast(e.message);preview.disabled=false;}};
+}
 const ITEM_INQUIRIES={
   INQUIRY_EGG:{title:'🥚 ไข่ดิจิมอน',label:'ไข่ดิจิมอน',image:'product-b50bae8d2d1f3863fb39f74348c156598a88984f71c69222a493ce8a83dbe1f7.png',imageClass:'egg-inquiry-image',subtitle:'ระดับ 3 / 4 / 5 และไข่ดรอป',heading:'หาไข่ตัวไหนอยู่? ส่งชื่อและระดับให้ร้านช่วยเช็กได้เลย',field:'ชื่อไข่ที่ต้องการสอบถาม',hint:'บอกชื่อไข่ ระดับ 3 / 4 / 5 หรือไข่ดรอป และจำนวน (ถ้าทราบ)',example:'เช่น ไข่อากุมอน ระดับ 5 จำนวน 1 ฟอง มีไหมครับ?'},
   INQUIRY_UNLOCK:{title:'🔓 ไอเทมปลดร่างดิจิมอน',label:'ไอเทมปลดร่างดิจิมอน',image:'product-2617fb0ac20f104417e1605e91cf40fcbccc5fc7226d1e088e0cbbfbaeb17a3e.png',imageClass:'unlock-inquiry-image',subtitle:'แจ้งชื่อดิจิมอนและร่างที่ต้องการ',heading:'อยากปลดร่างตัวไหน? ทักให้ร้านช่วยเช็กไอเทมได้เลย',field:'ชื่อไอเทม หรือดิจิมอนและร่างที่อยากปลด',hint:'พิมพ์ชื่อไอเทมได้เลย หรือบอกชื่อตัวละครและร่างที่จะปลดให้ร้านตรวจสอบ',example:'เช่น ต้องการปลดร่างวอร์เกรย์มอน มีไอเทมปลดร่างไหมครับ?'}
 };
 const itemInquiryDrafts={INQUIRY_EGG:'',INQUIRY_UNLOCK:''};
 function enabledItemInquiries(){return subcategoriesFor('ITEM').filter(row=>Object.prototype.hasOwnProperty.call(ITEM_INQUIRIES,row.value));}
-function currentItemInquiry(){return state.catalogType==='ITEM'&&!state.wishlistOnly&&enabledItemInquiries().some(row=>row.value===state.section)?ITEM_INQUIRIES[state.section]:null;}
+function itemInquiryConfig(key){
+  if(!Object.prototype.hasOwnProperty.call(ITEM_INQUIRIES,key))return null;
+  const base=ITEM_INQUIRIES[key],prefix=key==='INQUIRY_EGG'?'egg':'unlock',settings=state.settings||{};
+  return {...base,image:safePosterUrl(settings[prefix+'PosterUrl'])||base.image,...Object.fromEntries(['heading','hint','example'].map(field=>{const key=prefix+field[0].toUpperCase()+field.slice(1);return[field,String(settings[key]||'').trim()?configuredSettingText(settings,key,base[field]):base[field]];}))};
+}
+function safePosterUrl(value){try{const u=new URL(String(value||''));return u.protocol==='https:'&&!u.username&&!u.password?u.href:'';}catch(ignore){return '';}}
+function currentItemInquiry(){return state.catalogType==='ITEM'&&!state.wishlistOnly&&enabledItemInquiries().some(row=>row.value===state.section)?itemInquiryConfig(state.section):null;}
 function itemInquiryMessage(key,value){
   const text=String(value??'').trim().slice(0,500),c=Object.prototype.hasOwnProperty.call(ITEM_INQUIRIES,key)?ITEM_INQUIRIES[key]:null;
   return c&&text?'สวัสดีครับ ขอสอบถาม'+c.label+'\n'+text+'\nรบกวนร้านตรวจสอบว่ามีหรือไม่มี และแจ้งราคาให้หน่อยครับ':'';
@@ -679,7 +749,7 @@ function itemInquiryContactLinks(){
 function itemInquiryShortcuts(){
   if(state.catalogType!=='ITEM'||state.wishlistOnly||state.section!=='ALL')return '';
   return '<div class="item-inquiry-features">'+enabledItemInquiries().map(row=>{
-    const c=ITEM_INQUIRIES[row.value];
+    const c=itemInquiryConfig(row.value);
     return '<button class="item-inquiry-shortcut" type="button" data-sec="'+html(row.value)+'"><img src="'+html(c.image)+'" alt="" width="120" height="80"><span><strong>'+html(c.title)+'</strong><small>'+html(c.subtitle)+'</small><small>ทักร้านเช็กราคาและของพร้อมขายได้เลย</small></span><b class="item-inquiry-detail">ดูรายละเอียด →</b></button>';
   }).join('')+'</div>';
 }
@@ -733,7 +803,7 @@ function shopPage() {
   return `<div class="grid-main">
     <section class="panel">
       ${announcement?`<div class="site-message announcement">📢 ${html(announcement)}</div>`:''}${promotionText?`<div class="site-message promotion">🎁 ${html(promotionText)}</div>`:''}${importantNotice?`<div class="site-message important">⚠️ ${html(importantNotice)}</div>`:''}
-      ${state.catalogType==='SEAL'&&!state.wishlistOnly?`<div class="seal-budget-help"><h2>${html(configuredSettingText(state.settings,'sealBudgetTitle','🌟 มือใหม่? ให้ร้านจัดซีลตามงบ'))}</h2><p>${html(configuredSettingText(state.settings,'sealBudgetDescription','ไม่รู้จะเลือกตัวไหน บอกงบแล้วให้ร้านช่วยแนะนำได้เลย'))}</p><div class="seal-budget-controls"><label for="sealBudget">งบประมาณ (บาท)<input id="sealBudget" type="number" min="1" max="10000000" step="1" placeholder="เช่น 500"></label><button class="btn primary" id="sealBudgetSend" type="button">${html(configuredSettingText(state.settings,'sealBudgetButton','💬 คัดลอกและเปิด Messenger'))}</button></div><small>เปิดแชตแล้วกดวางข้อความและส่งให้ร้าน • ยังไม่ใช่การยืนยันซื้อ</small><textarea id="sealBudgetMessage" readonly hidden aria-label="ข้อความขอให้ร้านจัดซีล"></textarea></div>`:''}
+      ${state.catalogType==='SEAL'&&!state.wishlistOnly?sealBudgetPanel():''}
       <div class="shop-heading"><div><h2 class="panel-title">${state.wishlistOnly ? '❤️ รายการโปรด' : state.catalogType === 'SEAL' ? 'รายการซีล' : state.catalogType === 'ITEM' ? 'ไอเทมในเกม' : state.catalogType === 'TMONEY' ? 'เงิน T' : 'บริการของร้าน'}</h2><p class="product-meta">${state.wishlistOnly ? 'รายการโปรดเก็บอยู่ในอุปกรณ์เครื่องนี้' : state.catalogType==='TMONEY'?'กรอกจำนวน T ที่ต้องการ ระบบคำนวณจาก Rate ปัจจุบันและตรวจ Stock จริงอีกครั้งที่ Server':state.catalogType==='SERVICE'?'เลือกบริการและจำนวน แล้วทักร้านเพื่อสอบถามหรือนัดหมาย':'เลือกจำนวนและเพิ่มลงรายการ จากนั้นส่งให้ร้านตรวจสอบสต๊อก'}</p></div></div>
       <div class="commerce-flow" aria-label="ขั้นตอนสั่งซื้อ"><b>1 เลือกสินค้า</b><i>→</i><b>2 ตรวจตะกร้า</b><i>→</i><b>3 Copy/ส่งให้ร้าน</b><i>→</i><b>4 ร้านตรวจและจัดของ</b><i>→</i><b>5 เสร็จสิ้น</b></div>
       <div class="filters">
@@ -1534,7 +1604,8 @@ async function savePromoAction(){
 }
 
 
-function automationPage() {
+function automationPage(){return recoveryGuidePanel()+baseAutomationPage();}
+function baseAutomationPage() {
   const automation=state.adminData?.automation||{},alerts=automation.alerts||{},counts=alerts.counts||{},backups=automation.backups||[],actor=state.adminData?.security?.actor||state.adminUser||{};
   const alertRows=[
     ...(alerts.newOrders||[]).map(x=>({level:'green',icon:'🧾',title:`ออเดอร์ใหม่ ${x.orderId||''}`,meta:`${x.tamer||'-'} • ${money(x.total)} บาท`,view:'orders'})),
@@ -1586,7 +1657,8 @@ function themeSettingsPanel(settings){
   return `<section class="panel theme-settings"><div class="admin-toolbar"><div><h2 class="panel-title">🎨 Theme เว็บไซต์</h2><p class="product-meta">ปรับสีหลักของหน้าร้านได้ทันที • ระบบจะตรวจรูปแบบสีและเลือกสีตัวอักษรบนปุ่มให้อ่านง่ายอัตโนมัติ</p></div><button class="btn" id="restoreThemeDefaultsBtn" type="button">คืนค่าเริ่มต้น</button></div><div class="theme-editor-grid"><div class="form-grid theme-fields"><label>โหมดเริ่มต้น<select id="setThemeDefault"><option value="DARK" ${theme==='DARK'?'selected':''}>มืด</option><option value="LIGHT" ${theme==='LIGHT'?'selected':''}>สว่าง</option></select></label><label>สีหลัก<input id="setThemePrimary" type="color" value="${html(palette.primary.toLowerCase())}"></label><label>สีรอง / Accent<input id="setThemeAccent" type="color" value="${html(palette.accent.toLowerCase())}"></label><label>สีพื้นหลัง<input id="setThemeBackground" type="color" value="${html(palette.background.toLowerCase())}"></label><label>สีปุ่ม<input id="setThemeButton" type="color" value="${html(palette.button.toLowerCase())}"></label><label>สีข้อความสำคัญ<input id="setThemeImportant" type="color" value="${html(palette.important.toLowerCase())}"></label></div><div class="theme-preview" id="themePreview"><span>ตัวอย่างหน้าร้าน</span><strong>สินค้าและยอดสุทธิ</strong><p>ข้อความทั่วไปยังคงอ่านง่าย</p><button class="btn primary" type="button" tabindex="-1">ปุ่มหลัก</button><button class="btn" type="button" tabindex="-1">ปุ่มทั่วไป</button><div class="theme-swatches"><i data-theme-swatch="primary"></i><i data-theme-swatch="accent"></i><i data-theme-swatch="background"></i><i data-theme-swatch="button"></i><i data-theme-swatch="important"></i></div></div></div><div class="security-note">หากค่าที่ส่งมาไม่ใช่สีแบบ #RRGGBB ระบบจะใช้ค่าสีเริ่มต้นแทนอย่างปลอดภัย</div></section>`;
 }
 
-function sealSetSettingsPanel(settings){
+function sealSetSettingsPanel(settings){return shopContentSettingsPanel(settings)+baseSealSetSettingsPanel(settings);}
+function baseSealSetSettingsPanel(settings){
   let rows;try{rows=JSON.parse(settings.sealSetsJson||'null');}catch(ignore){}
   if(!Array.isArray(rows))rows=sealSetOffers().map(o=>({id:o.id,name:o.name,category:o.category,multiplier:o.multiplier,enabled:true,imageUrl:'',memberIds:o.members.map(p=>p.id)}));
   return `<section class="panel"><h2 class="panel-title">📦 จัดการเซ็ตซีล</h2><p class="product-meta">แก้ชื่อ รูป เปิด–ปิด และเลือกซีลในแต่ละเซ็ต ราคาคำนวณจากซีลเดี่ยวเสมอ เมื่อบันทึกแล้วรายชื่อจะคงที่จนกว่าคุณแก้เอง · สตาร์มอนและโกสึมอนซูซาในเซ็ตคิดตัวละ 1,000 ใบ</p>${rows.map(row=>`<details class="seal-set-editor" data-set-editor="${html(row.id)}" data-set-category="${html(row.category)}" data-set-multiplier="${row.multiplier}"><summary>${html(row.name)} · ${row.memberIds.length} ซีล</summary><div class="form-grid"><label>ชื่อเซ็ต<input data-set-name value="${html(row.name)}"></label><label><input type="checkbox" data-set-enabled ${row.enabled!==false?'checked':''}> เปิดขาย</label><label class="full">URL รูปเซ็ต (เว้นว่างได้)<input data-set-image value="${html(row.imageUrl||'')}"></label></div><div class="seal-set-member-picker">${state.seals.filter(p=>isSealSetProduct(p)&&(row.category==='ALL'||p.category===row.category)).sort((a,b)=>sealPackPrice(a)-sealPackPrice(b)).map(p=>`<label><input type="checkbox" data-set-member value="${html(p.id)}" ${row.memberIds.includes(p.id)?'checked':''}> ${html(p.name)} · ${money(sealPackPrice(p))} บาท/ชุด</label>`).join('')}</div></details>`).join('')}</section>`;
@@ -1631,6 +1703,7 @@ function standardWikiModalMarkup(){return wikiGalleryModal().replace('<div class
 function dynamicEditModalMarkup(){
   const record=state.editRecord||{kind:'SEAL',section:'NORMAL'};
   let markup=editModal();
+  if(['SEAL','ITEM','TMONEY'].includes(record.kind))markup=markup.replace('<div class="chip-row" style="margin-top:14px">','<label class="full"><input type="checkbox" id="fConfirmStockReviewed"> ฉันตรวจสต๊อกสินค้านี้แล้วตอนนี้ (บันทึกเวลาที่ร้านยืนยัน)</label><div class="chip-row" style="margin-top:14px">');
   if(record.kind==='SEAL')markup=markup.replace(/<select id="fSection">[\s\S]*?<\/select>/,`<select id="fSection">${subcategoryOptions('SEAL',record.section||'')}</select>`);
   if(record.kind==='ITEM')markup=markup.replace(/<input id="fItemCategory"[^>]*>/,`<select id="fItemCategory">${subcategoryOptions('ITEM',record.itemCategory||'')}</select>`);
   if(record.kind==='SERVICE')markup=markup.replace(/<input id="fServiceCategory"[^>]*>/,`<select id="fServiceCategory">${subcategoryOptions('SERVICE',record.serviceCategory||'')}</select>`);
@@ -1762,6 +1835,7 @@ async function saveRecordAction() {
     const imageUrl = document.getElementById('fImageUrl').value.trim();
     const record = {
       ...old,
+      confirmStockReviewed:document.getElementById('fConfirmStockReviewed')?.checked===true,
       name: document.getElementById('fName').value.trim(),
       aliases: document.getElementById('fAliases').value.split('|').map((x) => x.trim()).filter(Boolean),
       price: Number(document.getElementById('fPrice').value) || 0,
@@ -1956,6 +2030,7 @@ async function saveSettingsAction() {
   const tokenAtStart=state.adminToken,prepared=state.servicePosterUpload,form=app;
   try {
     const settings = {
+      ...Object.fromEntries(Array.from(document.querySelectorAll('[data-content-setting]')).map(el=>[el.dataset.contentSetting,el.value.trim()])),
       ...(document.querySelector('[data-set-editor]')?{sealSetsJson:JSON.stringify(sealSetSettingsFromForm())}:{}),
       shopName: document.getElementById('setShopName').value.trim(),
       ownerName: document.getElementById('setOwnerName').value.trim(),
@@ -2160,6 +2235,7 @@ async function submitAdminLogin() {
 }
 
 function bind() {
+  bindShopImprovements();
   bindItemInquiry();
   const budgetSend=document.getElementById('sealBudgetSend');
   if(budgetSend)budgetSend.onclick=async()=>{

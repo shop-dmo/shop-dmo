@@ -7,10 +7,10 @@ vm.createContext(c);vm.runInContext(original.slice(0,original.indexOf('function 
 const {state,filteredProducts}=c.subject;
 vm.runInContext('globalThis.splitPriceSubject={sealCardPrice};',c);
 for(const section of ['SUSA','BASE_HARD']){
-  assert.equal(c.splitPriceSubject.sealCardPrice({kind:'SEAL',section,unit:'ใบ',price:1.5,packSize:1000,packPrice:1500,allowSplitSale:true}),'1.5 บาท/ใบ');
-  assert.equal(c.splitPriceSubject.sealCardPrice({kind:'SEAL',section,unit:'ชุด',price:1500,packSize:1000,packPrice:1500,allowSplitSale:false}),'1,500 บาท');
+  assert.equal(c.splitPriceSubject.sealCardPrice({kind:'SEAL',section,unit:'ใบ',price:1.5,packSize:1000,packPrice:1500,allowSplitSale:true}),'1.5 บาท/ใบ · 1,500 บาท/ชุด · 1,000 ใบ');
+  assert.equal(c.splitPriceSubject.sealCardPrice({kind:'SEAL',section,unit:'ชุด',price:1500,packSize:1000,packPrice:1500,allowSplitSale:false}),'1,500 บาท/ชุด · 1,000 ใบ');
 }
-assert.equal(c.splitPriceSubject.sealCardPrice({kind:'SEAL',section:'NORMAL',unit:'ใบ',price:.04,packSize:1000,packPrice:40,allowSplitSale:true}),'40 บาท');
+assert.equal(c.splitPriceSubject.sealCardPrice({kind:'SEAL',section:'NORMAL',unit:'ใบ',price:.04,packSize:1000,packPrice:40,allowSplitSale:true}),'40 บาท/ชุด · 1,000 ใบ (0.04 บาท/ใบ)');
 console.log('PASS SUSA/BASE_HARD leaf card price; NORMAL and non-split card prices unchanged');
 state.seals=[{id:'a',name:'A',kind:'SEAL',price:20,availableStock:3,status:'ACTIVE',sortOrder:1},{id:'b',name:'B',kind:'SEAL',price:10,availableStock:0,status:'ACTIVE',sortOrder:2},{id:'c',name:'C',kind:'SEAL',price:30,availableStock:'',status:'CHECK_STOCK',sortOrder:3},{id:'d',name:'D',kind:'SEAL',price:null,availableStock:2,status:'ACTIVE',sortOrder:4}];
 const ids=()=>Array.from(filteredProducts(),p=>p.id);

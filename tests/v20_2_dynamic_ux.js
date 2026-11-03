@@ -107,7 +107,10 @@ test('public auto refresh is foreground-only and shared across tabs',()=>{
   assert(source.includes("navigator.locks.request(PUBLIC_REFRESH_GATE_KEY,{mode:'exclusive',ifAvailable:true}"),'simultaneous foreground tabs can still pass the timestamp gate together');
   assert(app.includes("document.addEventListener('visibilitychange'")&&app.includes('setInterval(autoRefreshPublic,15000)'),'foreground resume or gated interval refresh is missing');
   assert(source.includes('state.settings?.autoRefreshSeconds'),'the Admin refresh interval setting is ignored by the foreground gate');
-  assert(app.includes("refresh.onclick = () => loadData(true)"),'manual refresh no longer bypasses the automatic gate');
+  // The existing manual-refresh UX now retains scroll and guards duplicate clicks.
+  const manual=app.slice(app.indexOf("const refresh = document.getElementById('refreshBtn')"),app.indexOf('\n',app.indexOf("const refresh = document.getElementById('refreshBtn')")));
+  assert(manual.includes('refresh.onclick = async () =>')&&manual.includes('await loadData(false)')&&!manual.includes('autoRefreshPublic('),'manual refresh no longer directly bypasses the automatic gate');
+  assert(manual.includes('if(state.manualRefreshing)return')&&manual.includes('finally{state.manualRefreshing=false'),'manual refresh must retain its in-flight guard and cleanup');
 });
 
 test('session verification uses a revalidated location cache and one-range cold fallback',()=>{
