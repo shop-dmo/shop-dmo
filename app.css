@@ -252,8 +252,12 @@ body{background:var(--bg);background:radial-gradient(circle at 10% 0,color-mix(i
 .seal-budget-help{margin:16px 0;padding:18px;border:1px solid #22d3ee;border-radius:14px;background:linear-gradient(120deg,#123353,#122339)}
 .seal-budget-help h2{margin:0 0 8px;font-size:21px;color:#e0f2fe}
 .seal-budget-help p{margin:0 0 12px;color:#cbd5e1}
-.seal-budget-controls{display:flex;gap:12px;align-items:end;flex-wrap:wrap}
-.seal-budget-controls label{flex:1;min-width:150px}.seal-budget-controls input{display:block;width:100%;margin-top:6px}
+.seal-budget-controls{display:flex;gap:8px 12px;align-items:end;flex-wrap:wrap}
+.seal-budget-fields{display:grid;grid-template-columns:minmax(0,1.15fr) repeat(2,minmax(0,1fr));gap:8px;flex:0 1 360px;min-width:0;max-width:100%}
+.seal-budget-fields label{min-width:0;margin:0;font-size:14px}
+.seal-budget-fields input,.seal-budget-fields select{display:block;width:100%;min-width:0;height:42px;margin:4px 0 0;padding:6px 8px;box-sizing:border-box}
+.seal-budget-actions{display:flex;gap:8px;flex-wrap:wrap;max-width:100%}
+.seal-budget-actions .btn{min-height:42px}
 .seal-budget-help small{display:block;margin-top:10px;color:#a5c5dd}.seal-budget-help textarea{width:100%;margin-top:12px;min-height:130px}
 .seal-add-thousand{margin:0 12px 10px;width:calc(100% - 24px);color:#a5f3fc;border-color:#0891b2}
 .catalog-refresh-bar{display:flex;justify-content:flex-end;align-items:center;gap:12px;margin:0 0 12px;padding:10px 14px;border:1px solid #274766;border-radius:10px;color:#a5c5dd;font-size:12px;flex-wrap:wrap}.catalog-refresh-bar button{min-width:125px}
@@ -261,6 +265,8 @@ body{background:var(--bg);background:radial-gradient(circle at 10% 0,color-mix(i
 /* Explicit sale units and verification provenance; retain the existing theme. */
 .stock-verification{display:block;font-size:.78rem;line-height:1.6;opacity:.85;margin-top:6px;overflow-wrap:anywhere}
 #sealBudgetProposal{margin:12px 0;overflow-wrap:anywhere}
-.seal-budget-help select{max-width:100%;margin:8px}
+#sealBudgetProposal:empty{display:none}
+.seal-budget-help #copySealProposal:disabled{display:none}
+.seal-budget-help #sealBudgetMessage[hidden]{display:none}
 [data-content-setting]{width:100%;box-sizing:border-box}
 .rare-leaf-set{margin:20px 0}.rare-leaf-set small{display:block;font-size:12px;line-height:1.6;margin:8px 0}.rare-leaf-set textarea{width:100%;min-height:180px;box-sizing:border-box;resize:vertical}.rare-leaf-set [role="status"]{overflow-wrap:anywhere}

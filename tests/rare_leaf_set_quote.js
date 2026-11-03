@@ -1,24 +1,28 @@
 'use strict';
 const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
 const {minify_sync}=require('terser'),{minifyOptions}=require('../scripts/site-build-options');
-const source=fs.readFileSync(path.join(__dirname,'../app.js'),'utf8'),prefix=source.slice(0,source.indexOf('function touchAdminActivity'))+'\nglobalThis.quoteTest={state,bindShopImprovements,setDeps:d=>{apiGet=(...a)=>d.apiGet(...a);copyText=(...a)=>d.copyText(...a);toast=(...a)=>d.toast(...a);renderPreservingScroll=(...a)=>d.render(...a);}};';
-const quote={id:'seal-set-rare-one-leaf',name:'Rare quote',quoteOnly:true,price:2,rawTotal:1.4,members:[{id:'a',name:'A',section:'BASE_HARD',price:.6},{id:'b',name:'B',section:'SUSA',price:.8}],excluded:[]};
-function fixture(script){
- const elements=Object.fromEntries(['rareLeafSetQty','copyRareLeafSet','rareLeafSetTotal','rareLeafSetMessage','rareLeafSetNotice'].map(id=>[id,{value:id==='rareLeafSetQty'?'3':'',textContent:'',hidden:true,disabled:false,isConnected:true,focus(){},select(){}}]));
- const storage={getItem:()=>null,setItem(){},removeItem(){}},c={console,URL,URLSearchParams,setTimeout,clearTimeout,location:{hash:''},navigator:{},localStorage:storage,sessionStorage:storage,window:{DMO_CONFIG:{},addEventListener(){}},document:{querySelector:()=>null,querySelectorAll:()=>[],getElementById:id=>elements[id]||null}};
- vm.createContext(c);vm.runInContext(script,c);c.quoteTest.state.rareLeafSet=JSON.parse(JSON.stringify(quote));c.quoteTest.state.offline=false;const copies=[],toasts=[];let calls=0,renders=0;
- const deps={apiGet:async()=>{calls++;return{rareLeafSet:JSON.parse(JSON.stringify(quote))};},copyText:async text=>copies.push(text),toast:text=>toasts.push(text),render:()=>renders++};c.quoteTest.setDeps(deps);c.quoteTest.bindShopImprovements();
- return{c,deps,e:elements,copies,toasts,calls:()=>calls,renders:()=>renders};
-}
+const source=fs.readFileSync(path.join(__dirname,'../app.js'),'utf8'),prefix=source.slice(0,source.indexOf('function touchAdminActivity'))+'\nglobalThis.test={state,bindShopImprovements,addRareLeafSet,compactCartEntries,pricingSummary,changeCartSetQuantity,orderText,setDeps:d=>{apiGet=d.get;toast=d.toast;renderPreservingScroll=d.render;}};';
+const members=[{id:'a',name:'A',section:'BASE_HARD',price:.6},{id:'b',name:'B',section:'SUSA',price:.8}];
+const quote={id:'seal-set-rare-one-leaf',name:'Rare set',available:true,price:2,rawTotal:1.4,members};
+const data={rareLeafSet:quote,seals:members.map(p=>({...p,category:'AT',unit:'ใบ',packSize:1000,status:'ACTIVE',availableStock:4})),settings:{}};
 (async()=>{
  for(const script of [prefix,minify_sync(prefix,minifyOptions()).code]){
-  let f=fixture(script);await f.e.copyRareLeafSet.onclick();assert.equal(f.calls(),1);assert.equal(f.copies.length,1);assert(f.copies[0].includes('= 6 บาท'));assert(!f.e.rareLeafSetMessage.hidden);assert(!f.e.rareLeafSetQty.disabled);
-  f.e.rareLeafSetQty.value='2';f.e.rareLeafSetQty.oninput();assert(f.e.rareLeafSetMessage.hidden);assert.equal(f.e.rareLeafSetMessage.value,'');assert.equal(f.e.rareLeafSetTotal.textContent,'4 บาท');
-  f=fixture(script);f.deps.apiGet=async()=>({rareLeafSet:{...quote,price:3}});await f.e.copyRareLeafSet.onclick();assert.equal(f.copies.length,0);assert.equal(f.renders(),1);assert.equal(f.c.quoteTest.state.rareLeafSet.price,3);
-  f=fixture(script);f.deps.apiGet=async()=>{throw Error('offline');};await f.e.copyRareLeafSet.onclick();assert.equal(f.copies.length,0);assert(!f.e.copyRareLeafSet.disabled);assert(!f.e.rareLeafSetQty.disabled);assert.equal(f.toasts[0],'offline');
-  f=fixture(script);f.deps.copyText=async()=>{throw Error('clipboard refused');};await f.e.copyRareLeafSet.onclick();assert(!f.e.rareLeafSetMessage.hidden);assert(f.e.rareLeafSetNotice.textContent.includes('ด้วยตัวเอง'));
-  f=fixture(script);f.c.quoteTest.state.offline=true;await f.e.copyRareLeafSet.onclick();assert.equal(f.calls(),0);
-  f=fixture(script);let resolve,calls=0;f.deps.apiGet=()=>{calls++;return new Promise(r=>resolve=r);};const pending=f.e.copyRareLeafSet.onclick();assert(f.e.copyRareLeafSet.disabled);assert(f.e.rareLeafSetQty.disabled);await f.e.copyRareLeafSet.onclick();assert.equal(calls,1);f.e.copyRareLeafSet.isConnected=false;resolve({rareLeafSet:quote});await pending;assert.equal(f.copies.length,0);
+  const btn={disabled:false,isConnected:true},qty={value:'2',isConnected:true},storage={getItem:()=>null,setItem(){},removeItem(){}};
+  const c={console,URL,URLSearchParams,setTimeout,clearTimeout,location:{hash:''},navigator:{},localStorage:storage,sessionStorage:storage,window:{DMO_CONFIG:{},addEventListener(){}},document:{querySelector:()=>null,querySelectorAll:()=>[],getElementById:id=>id==='addRareLeafSet'?btn:id==='rareLeafSetQty'?qty:null}};
+  vm.createContext(c);vm.runInContext(script,c);const x=c.test,copy=()=>JSON.parse(JSON.stringify(data));let reply=copy(),reads=0;
+  x.state.rareLeafSet=reply.rareLeafSet;x.setDeps({get:async()=>{reads++;return reply;},toast:()=>{},render:()=>{}});x.bindShopImprovements();
+  const pending=btn.onclick();assert(btn.disabled);await btn.onclick();await pending;assert.equal(reads,1);
+  assert.equal(x.compactCartEntries().length,1);assert.equal(x.compactCartEntries()[0].price,2);
+  assert.equal(x.pricingSummary().subtotal,4);assert.equal(x.pricingSummary().sealSetRounding,1.2);
+  const copied=x.orderText();assert(copied.includes('📦 Rare set 2 เซ็ต (รายละเอียดซีลด้านล่าง)'));assert(copied.includes('A 2 ใบ'));assert(copied.includes('ส่วนต่างปัดราคาเซ็ต +1.2 บาท'));assert(copied.includes('รวมก่อนลด 4 บาท'));assert(!copied.includes('2 เซ็ต ×'));
+  x.state.settings.categoryDiscountSealPercent=5;assert.equal(x.pricingSummary().total,3.8);
+  x.state.cart.find(p=>p.id==='a').quantity++;assert.equal(x.pricingSummary().subtotal,4.6);
+  x.changeCartSetQuantity('rare-leaf-set-cart',4);assert.equal(x.state.cart.find(p=>p.id==='b').quantity,2);
+  x.changeCartSetQuantity('rare-leaf-set-cart',3);assert.equal(x.pricingSummary().subtotal,6.6);
+  x.changeCartSetQuantity('rare-leaf-set-cart',0);assert.equal(x.state.cart.length,1);assert.equal(x.pricingSummary().subtotal,.6);
+  reply=copy();reply.rareLeafSet.price=3;await btn.onclick();assert.equal(x.state.cartSetGroups.length,0);
+  reply.seals[1].availableStock=0;await btn.onclick();assert.equal(x.state.cart.length,1);assert.equal(x.state.cart[0].quantity,1);
+  x.state.offline=true;const previous=reads;await btn.onclick();assert.equal(reads,previous);
  }
- console.log('PASS readable/minified rare set quote: fresh server price, changed-price review, quantity lock, duplicate guard, no offline/stale copy, network failure and manual clipboard fallback');
+ console.log('PASS readable/minified rare cart: fresh quote, atomic stock checks, overlap, resizing, removal, discounts and copied rounded total');
 })().catch(error=>{console.error(error);process.exitCode=1;});

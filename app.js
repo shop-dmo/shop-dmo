@@ -306,6 +306,11 @@ function toggleFavorite(product) {
 function saveRecentOrderSnapshot(orderId = '') {
   if (!state.cart.length) return;
   const snapshot = { orderId, createdAt: new Date().toISOString(), customer: customerValues(), items: state.cart.map((x) => ({ ...x })), total: pricingSummary().total };
+  const rare=compactCartEntries().find(item=>item.rareLeaf);
+  if(rare){
+    snapshot.rareSetCount=rare.quantity;
+    snapshot.items=snapshot.items.map(item=>item.kind==='SEAL'&&rare.memberIds.includes(item.id)?{...item,quantity:item.quantity-rare.quantity}:item).filter(item=>item.quantity>0);
+  }
   state.recentOrders = [snapshot, ...state.recentOrders].slice(0, 10);
   localStorage.setItem('dmo_recent_orders', JSON.stringify(state.recentOrders));
 }
@@ -318,8 +323,9 @@ function repeatOrder(snapshot) {
     addToCartSilent(product, Math.max(1, Number(item.quantity) || 1));
     added++;
   });
+  if(snapshot.rareSetCount)addRareLeafSet(snapshot.rareSetCount);
   if (snapshot.customer) state.customer = { ...state.customer, ...snapshot.customer };
-  toast(added ? `เพิ่มรายการเดิม ${added} รายการแล้ว` : 'ไม่พบสินค้าที่พร้อมขายจากรายการเดิม');
+  if(!snapshot.rareSetCount)toast(added ? `เพิ่มรายการเดิม ${added} รายการแล้ว` : 'ไม่พบสินค้าที่พร้อมขายจากรายการเดิม');
   render();
 }
 
@@ -571,6 +577,25 @@ function addSealSet(id,quantity){
   state.copyNotice='';renderPreservingScroll();toast(`เพิ่ม ${offer.name} ${money(count)} เซ็ตแล้ว`);
 }
 
+function addRareLeafSet(count){
+  const offer=state.rareLeafSet;count=Number(count);
+  if(state.offline||!offer?.available||!Number.isSafeInteger(offer.price)||offer.price<=0||!offer.members?.length)return toast('เซ็ตนี้ยังเพิ่มไม่ได้ กรุณาโหลดข้อมูลล่าสุดและตรวจสต๊อก');
+  const group=state.cartSetGroups.find(g=>g.rareLeaf);
+  if(!Number.isSafeInteger(count)||count<1||count+(group?.quantity||0)>999)return toast('ระบุจำนวนเต็ม 1–999 เซ็ต');
+  const signature=JSON.stringify(offer.members.map(p=>[p.id,p.price]));
+  if(group&&(group.signature!==signature||group.setPrice!==offer.price))return toast('ราคา/รายชื่อเซ็ตเปลี่ยน กรุณาลบเซ็ตเดิมแล้วเพิ่มใหม่');
+  const products=new Map(state.seals.map(p=>[p.id,p])),members=[];
+  for(const member of offer.members){
+    const p=products.get(member.id),existing=state.cart.find(x=>x.kind==='SEAL'&&x.id===member.id);
+    if(!p||p.status!=='ACTIVE'||saleUnit(p)!=='ใบ'||Number(p.price)!==member.price||existing&&(existing.unit!=='ใบ'||existing.price!==member.price)||Number(availableStock(p))<(existing?.quantity||0)+count||!Number.isFinite(Number(availableStock(p))))return toast('เพิ่มเซ็ตไม่ได้: '+member.name+' สต๊อกไม่พอ หรือราคา/หน่วยเปลี่ยน');
+    members.push([p,existing]);
+  }
+  members.forEach(([p,existing])=>{if(existing)existing.quantity+=count;else state.cart.push(cartProductSnapshot(p,count));});
+  if(group)group.quantity+=count;
+  else state.cartSetGroups.push({id:offer.id,key:'rare-leaf-set-cart',name:offer.name,category:'ALL',rareLeaf:true,setPrice:offer.price,signature,multiplier:1,memberIds:offer.members.map(p=>p.id),quantity:count});
+  state.copyNotice='';renderPreservingScroll();toast('เพิ่มเซ็ตเบสยาก + ซูซาแล้ว');
+}
+
 function filteredProducts() {
   const query = state.search.trim();
   return catalog().map((product) => ({ product, score: query ? smartSearchScore(product, query) : 1 })).filter(({ product, score }) => {
@@ -677,14 +702,9 @@ function rareLeafSetCard(query=''){
       ${offer.excluded?.length?`<p class="product-meta">ไม่รวม ${offer.excluded.map(p=>html(p.name)).join(' / ')}: ยังขายยกชุด ไม่ขายแยก 1 ใบ</p>`:''}
       <ol>${offer.members.map(p=>`<li><b>${html(p.name)}</b><span>${html(sectionLabel(p.section))} · 1 ใบ · ${p.price==null?'สอบถามราคา':Number(p.price).toLocaleString('th-TH',{maximumFractionDigits:6})+' บาท'}</span></li>`).join('')}</ol>
     </details>
-    <div class="product-actions"><input id="rareLeafSetQty" class="qty-input" aria-label="จำนวนเซ็ตเบสยากและซูซา" type="number" min="1" max="999" step="1" value="1"><button class="btn primary" id="copyRareLeafSet" ${!priced||state.offline?'disabled':''}>คัดลอกขอเซ็ตนี้</button></div>
-    <small>ยอดขอเซ็ต <strong id="rareLeafSetTotal">${priced?money(offer.price)+' บาท':'รอตรวจราคา'}</strong> • แยกจากตะกร้าปกติ รอร้านยืนยันก่อนซื้อ ไม่จองสต๊อกอัตโนมัติ</small>
-    <textarea id="rareLeafSetMessage" readonly hidden aria-label="ข้อความขอเซ็ตเบสยากและซูซา"></textarea><p id="rareLeafSetNotice" role="status" aria-live="polite"></p>
+    <div class="product-actions"><input id="rareLeafSetQty" class="qty-input" aria-label="จำนวนเซ็ตเบสยากและซูซา" type="number" min="1" max="999" step="1" value="1"><button class="btn primary" id="addRareLeafSet" ${!priced||!offer.available||state.offline?'disabled':''}>${offer.available?'+ เพิ่มทั้งเซ็ต':'ต้องตรวจสต๊อก'}</button></div>
+    <small>ราคาก่อนส่วนลด • รอร้านยืนยันก่อนซื้อ ไม่จองสต๊อกอัตโนมัติ</small>
   </article></section>`;
-}
-function rareLeafSetMessage(offer,count){
-  count=Number(count);if(offer?.id!=='seal-set-rare-one-leaf'||!offer.quoteOnly||!offer.members?.length||!Number.isSafeInteger(count)||count<1||count>999||!Number.isFinite(offer.price)||offer.price<=0)return '';
-  return `ขอสอบถาม ${offer.name}\nจำนวน ${count} เซ็ต · ต่อเซ็ต: เบสยากและซูซาทุกตัวในรายชื่ออย่างละ 1 ใบ\n`+offer.members.map(p=>`${p.name} ${count} ใบ`).join('\n')+`\nรวมก่อนปัด ${Number(offer.rawTotal).toLocaleString('th-TH',{maximumFractionDigits:6})} บาท/เซ็ต\nปัดขึ้นบาทเต็ม ${money(offer.price)} บาท/เซ็ต × ${count} = ${money(offer.price*count)} บาท (ก่อนส่วนลด/โปรโมชั่น)`+(offer.excluded?.length?`\nไม่รวม ${offer.excluded.map(p=>p.name).join(' / ')} เพราะขายยกชุด`:'')+'\nรายการนี้แยกจากตะกร้าปกติ กรุณาร้านตรวจรายชื่อ ราคา และสต๊อกก่อนยืนยัน ยังไม่ได้จองหรือสั่งซื้อ';
 }
 function stockVerificationMarkup(product){
   if(product.kind==='SERVICE')return '';
@@ -692,12 +712,12 @@ function stockVerificationMarkup(product){
   const message=state.offline?'ข้อมูลแคช/ออฟไลน์ • ทักร้านยืนยันก่อน':!Number.isFinite(at)||age<0?'ร้านยังไม่ได้บันทึกเวลาตรวจสต๊อก':`ร้านตรวจสต๊อก ${new Date(at).toLocaleString('th-TH')}${age>86400000?' • เกิน 24 ชั่วโมง กรุณาสอบถามอีกครั้ง':''}`;
   return `<small class="stock-verification">${html(message)} · ไม่ใช่เวลาที่โหลดหน้าเว็บ</small>`;
 }
-function sealBudgetPanel(){return `<section class="seal-budget-help"><h2>${html(configuredSettingText(state.settings,'sealBudgetTitle','🌟 มือใหม่? ให้ร้านจัดซีลตามงบ'))}</h2><p>${html(configuredSettingText(state.settings,'sealBudgetDescription','เลือกซีลพื้นฐานจากราคาถูกไปแพง จนงบไม่พอรายการถัดไป'))}</p><div class="seal-budget-controls"><label for="sealBudget">งบประมาณ (บาท)<input id="sealBudget" type="number" min="1" max="10000000" step="1" placeholder="เช่น 500"></label><button class="btn primary" id="sealBudgetSend" type="button">${html(configuredSettingText(state.settings,'sealBudgetButton','💬 คัดลอกและเปิด Messenger'))}</button></div><label for="sealBudgetLine">สายที่ต้องการ</label><select id="sealBudgetLine"><option value="ALL">ทุกสาย</option>${SEAL_SET_CATEGORIES.map(cat=>`<option>${cat}</option>`).join('')}</select><button class="btn" id="sealBudgetSuggest" type="button">ลองจัดรายการตามงบ</button><div id="sealBudgetProposal" role="status" aria-live="polite"></div><button class="btn small" id="copySealProposal" type="button" disabled>คัดลอกรายการแนะนำ</button><small>เฉพาะซีลพื้นฐาน (ปกติ) ชุด 1,000 ใบ • เรียงราคาต่ำไปสูง ตัวละ 1 ชุดจนงบไม่พอ • ใช้สต๊อกที่ร้านตรวจภายใน 24 ชั่วโมง • ก่อนส่วนลด/โปรโมชั่น ไม่ยืนยันซื้อหรือจอง • สูงสุด 250 รายการ</small><textarea id="sealBudgetMessage" readonly hidden aria-label="ข้อความขอให้ร้านจัดซีล"></textarea></section>`;}
+function sealBudgetPanel(){return `<section class="seal-budget-help"><h2>${html(configuredSettingText(state.settings,'sealBudgetTitle','🌟 มือใหม่? ให้ร้านจัดซีลตามงบ'))}</h2><p>${html(configuredSettingText(state.settings,'sealBudgetDescription','เลือกซีลพื้นฐานจากราคาถูกไปแพง จนงบไม่พอรายการถัดไป'))}</p><div class="seal-budget-controls"><div class="seal-budget-fields"><label for="sealBudget">งบ (บาท)<input id="sealBudget" type="number" min="1" max="10000000" step="1" placeholder="เช่น 500"></label><label for="sealBudgetLine">สายที่ต้องการ<select id="sealBudgetLine"><option value="ALL">ทุกสาย</option>${SEAL_SET_CATEGORIES.map(cat=>`<option>${cat}</option>`).join('')}</select></label><label for="sealBudgetLeaves">จำนวนต่อตัว<select id="sealBudgetLeaves"><option value="1000">1,000 ใบ</option><option value="3000">3,000 ใบ</option></select></label></div><div class="seal-budget-actions"><button class="btn" id="sealBudgetSuggest" type="button">ลองจัดรายการตามงบ</button><button class="btn primary" id="sealBudgetSend" type="button">${html(configuredSettingText(state.settings,'sealBudgetButton','💬 คัดลอกและเปิด Messenger'))}</button></div></div><div id="sealBudgetProposal" role="status" aria-live="polite"></div><button class="btn small" id="copySealProposal" type="button" disabled>คัดลอกรายการแนะนำ</button><small>เฉพาะซีลพื้นฐาน (ปกติ) • เรียงราคาต่ำไปสูง ตามจำนวนใบที่เลือกจนงบไม่พอ • อิงสต๊อกบนเว็บ ร้านยังต้องยืนยัน • ก่อนส่วนลด/โปรโมชั่น ไม่ยืนยันซื้อหรือจอง • สูงสุด 250 รายการ</small><textarea id="sealBudgetMessage" readonly hidden aria-label="ข้อความขอให้ร้านจัดซีล"></textarea></section>`;}
 function suggestSealBudget(products,budget,line='ALL',options={}){
-  const cents=Math.floor(Number(budget)*100),now=options.now??Date.now();
-  if(options.offline||!Number.isSafeInteger(cents)||cents<100||cents>1000000000||!['ALL',...SEAL_SET_CATEGORIES].includes(line))return{items:[],total:0,reason:'งบหรือสายไม่ถูกต้อง หรือกำลังใช้ข้อมูลออฟไลน์'};
-  const candidates=products.filter(p=>{const age=now-Date.parse(p.stockVerifiedAt||'');return p.kind==='SEAL'&&p.section==='NORMAL'&&Number(p.packSize)===1000&&p.status==='ACTIVE'&&Number.isFinite(age)&&age>=0&&age<=86400000&&(line==='ALL'||p.category===line)&&Number.isFinite(sealPackPrice(p))&&sealPackPrice(p)>0&&availableStock(p)!==''&&Number(availableStock(p))>=sealQuantityPerSet(p,1);}).sort((a,b)=>sealPackPrice(a)-sealPackPrice(b)||String(a.id).localeCompare(String(b.id)));
-  let spent=0;const items=[],seen=new Set();for(const p of candidates){const price=Math.ceil(sealPackPrice(p)*100);if(seen.has(p.id))continue;if(spent+price>cents||items.length>=250)break;seen.add(p.id);spent+=price;items.push({id:p.id,name:p.name,category:p.category,leaves:1000,quantity:sealQuantityPerSet(p,1),unit:saleUnit(p),amount:price/100});}
+  const cents=Math.floor(Number(budget)*100); const leaves=Number(options.leaves??1000),packs=leaves/1000;
+  if(options.offline||![1000,3000].includes(leaves)||!Number.isSafeInteger(cents)||cents<100||cents>1000000000||!['ALL',...SEAL_SET_CATEGORIES].includes(line))return{items:[],total:0,reason:'งบ สาย หรือจำนวนใบไม่ถูกต้อง หรือกำลังใช้ข้อมูลออฟไลน์'};
+  const candidates=products.filter(p=>p.kind==='SEAL'&&p.section==='NORMAL'&&Number(p.packSize)===1000&&p.status==='ACTIVE'&&(line==='ALL'||p.category===line)&&Number.isFinite(sealPackPrice(p))&&sealPackPrice(p)>0&&Number.isFinite(Number(availableStock(p)))&&Number(availableStock(p))>=(saleUnit(p)==='ใบ'?leaves:packs)).sort((a,b)=>sealPackPrice(a)-sealPackPrice(b)||String(a.id).localeCompare(String(b.id)));
+  let spent=0;const items=[],seen=new Set();for(const p of candidates){const price=Math.ceil(Number((sealPackPrice(p)*packs*100).toFixed(8)));if(seen.has(p.id))continue;if(spent+price>cents||items.length>=250)break;seen.add(p.id);spent+=price;items.push({id:p.id,name:p.name,category:p.category,leaves,quantity:saleUnit(p)==='ใบ'?leaves:packs,unit:saleUnit(p),amount:price/100});}
   return{items,total:spent/100,remaining:(cents-spent)/100,reason:items.length?'รายการตัวอย่างให้ร้านตรวจยืนยัน ไม่ใช่ชุดที่ดีที่สุดสำหรับทุกตัวละคร':'ยังไม่มีรายการที่ผ่านเงื่อนไขในงบนี้ ทักร้านให้ช่วยจัดได้'};
 }
 const SHOP_CONTENT_FIELDS=[['eggPosterUrl','URL โปสเตอร์ไข่'],['eggHeading','หัวข้อสอบถามไข่'],['eggHint','คำแนะนำไข่'],['eggExample','ตัวอย่างข้อความไข่'],['unlockPosterUrl','URL โปสเตอร์ไอเทมปลดร่าง'],['unlockHeading','หัวข้อสอบถามไอเทมปลดร่าง'],['unlockHint','คำแนะนำไอเทมปลดร่าง'],['unlockExample','ตัวอย่างข้อความไอเทมปลดร่าง']];
@@ -707,23 +727,29 @@ function recoveryGuidePanel(){
   return `<section class="panel"><h2>ตรวจแผนกู้คืนก่อนลงมือ</h2><ol><li>หยุดรับแก้ไขชั่วคราวและสำรองข้อมูลล่าสุดก่อน</li><li>เลือกสำเนา ตรวจวันและตารางเทียบกับข้อมูลปัจจุบัน</li><li>ทดสอบกู้คืนในสำเนาแยกก่อน ไม่ทับร้านจริง</li><li>ให้เจ้าของยืนยันก่อนใช้ Restore จริง และตรวจออเดอร์/สต๊อกหลังทำ</li></ol><p>การตรวจแผนด้านล่างอ่านอย่างเดียว ไม่สร้าง Backup ไม่กู้คืน ไม่ลบไฟล์ และไม่พิสูจน์ว่ากู้คืนจริงได้แล้ว</p><select id="recoveryBackup" aria-label="สำเนาสำหรับตรวจแผน">${backups.map(b=>`<option value="${html(b.backupId)}" ${String(plan?.backupId)===String(b.backupId)?'selected':''}>${html(b.fileName||b.backupId)}</option>`).join('')}</select><button class="btn" id="previewRecovery" ${backups.length?'':'disabled'}>ตรวจแผน (ไม่เขียนข้อมูล)</button>${plan?`<p role="status">แผนของ ${html(plan.backupId||'')} · ${html(plan.warning)}</p><ul>${(plan.sheets||[]).map(row=>`<li>${html(row.name)}: สำเนา ${money(row.sourceRows)} แถว / ปัจจุบัน ${money(row.targetRows)} แถว · ${row.wouldReplace?'จะเขียนทับหาก Restore จริง':'ไม่มีในสำเนา — ข้าม'}</li>`).join('')}</ul>`:''}</section>`;
 }
 function bindShopImprovements(){
-  const rareQty=document.getElementById('rareLeafSetQty'),rareCopy=document.getElementById('copyRareLeafSet');
-  if(rareQty)rareQty.oninput=()=>{const text=rareLeafSetMessage(state.rareLeafSet,rareQty.value);document.getElementById('rareLeafSetTotal').textContent=text?money(state.rareLeafSet.price*Number(rareQty.value))+' บาท':'ระบุจำนวนเต็ม 1–999 เซ็ต';const output=document.getElementById('rareLeafSetMessage');output.hidden=true;output.value='';document.getElementById('rareLeafSetNotice').textContent='';};
-  if(rareCopy)rareCopy.onclick=async()=>{
-    if(rareCopy.disabled||state.offline)return;const count=Number(rareQty.value);if(!rareLeafSetMessage(state.rareLeafSet,count))return toast('ระบุจำนวนเต็ม 1–999 เซ็ต');rareCopy.disabled=true;rareQty.disabled=true;
+  const rareQty=document.getElementById('rareLeafSetQty'),rareAdd=document.getElementById('addRareLeafSet');
+  if(rareAdd)rareAdd.onclick=async()=>{
+    if(rareAdd.disabled||state.offline)return;
+    const count=Number(rareQty.value);
+    if(!Number.isSafeInteger(count)||count<1||count>999)return toast('ระบุจำนวนเต็ม 1–999 เซ็ต');
+    rareAdd.disabled=true;rareQty.disabled=true;
     try{
-      const data=await apiGet(false),fresh=data.rareLeafSet;
-      if(!rareCopy.isConnected||state.offline)return;
-      if(!fresh||JSON.stringify(fresh)!==JSON.stringify(state.rareLeafSet)){state.rareLeafSet=fresh||null;renderPreservingScroll();return toast('ข้อมูลเซ็ตเปลี่ยนแล้ว กรุณาตรวจรายการล่าสุดและกดขอเซ็ตอีกครั้ง');}
-      const text=rareLeafSetMessage(fresh,count),output=document.getElementById('rareLeafSetMessage');output.value=text;output.hidden=false;
-      try{await copyText(text,'คัดลอกคำขอเซ็ตแล้ว ยังไม่ได้ส่งข้อความหรือจองสินค้า');document.getElementById('rareLeafSetNotice').textContent='คัดลอกแล้ว นำไปวางในแชตร้านเพื่อให้ตรวจยืนยัน';}
-      catch(e){output.focus();output.select();document.getElementById('rareLeafSetNotice').textContent='กรุณาคัดลอกข้อความด้านบนด้วยตัวเอง';}
+      const data=await apiGet(false);
+      if(!rareAdd.isConnected||state.offline)return;
+      const changed=JSON.stringify(data.rareLeafSet)!==JSON.stringify(state.rareLeafSet);
+      applyPublicData(data,false);
+      if(changed){renderPreservingScroll();return toast('ข้อมูลเซ็ตเปลี่ยนแล้ว กรุณาตรวจรายการล่าสุดแล้วกดเพิ่มอีกครั้ง');}
+      addRareLeafSet(count);
     }catch(e){toast(e.message);}
-    finally{if(rareCopy.isConnected)rareCopy.disabled=state.offline;if(rareQty.isConnected)rareQty.disabled=false;}
+    finally{if(rareAdd.isConnected)rareAdd.disabled=state.offline;if(rareQty.isConnected)rareQty.disabled=false;}
   };
-  const calculate=()=>suggestSealBudget(state.seals,document.getElementById('sealBudget')?.value,document.getElementById('sealBudgetLine')?.value,{offline:state.offline});
-  const suggest=document.getElementById('sealBudgetSuggest');if(suggest)suggest.onclick=()=>{const result=calculate(),host=document.getElementById('sealBudgetProposal');host.textContent=result.reason;const list=document.createElement('ul');for(const p of result.items){const li=document.createElement('li');li.textContent=`${p.name} (${p.category}) 1,000 ใบ · ${money(p.amount)} บาท`;list.append(li);}host.append(list);if(result.items.length)host.append(document.createTextNode(`รวมก่อนส่วนลด ${money(result.total)} บาท`));document.getElementById('copySealProposal').disabled=!result.items.length;};
-  const copy=document.getElementById('copySealProposal');if(copy)copy.onclick=async()=>{const result=calculate();if(!result.items.length){copy.disabled=true;return toast(result.reason);}const text='ขอให้ร้านตรวจรายการซีลตามงบ (ไม่ยืนยันซื้อ)\n'+result.items.map(p=>`${p.name} 1,000 ใบ · ${money(p.amount)} บาท`).join('\n')+`\nรวมก่อนส่วนลด ${money(result.total)} บาท\nกรุณายืนยันราคาและสต๊อกล่าสุด`;const output=document.getElementById('sealBudgetMessage');output.value=text;output.hidden=false;try{await copyText(text,'คัดลอกรายการล่าสุดแล้ว ยังไม่ได้ส่งหรือจองสินค้า');}catch(e){output.focus();output.select();toast('กรุณาคัดลอกข้อความด้วยตัวเอง');}};
+  const calculate=()=>suggestSealBudget(state.seals,document.getElementById('sealBudget')?.value,document.getElementById('sealBudgetLine')?.value,{offline:state.offline,leaves:document.getElementById('sealBudgetLeaves')?.value});
+  for(const id of ['sealBudget','sealBudgetLine','sealBudgetLeaves']){
+    const field=document.getElementById(id);if(!field)continue;
+    field.addEventListener('input',()=>{document.getElementById('sealBudgetProposal').textContent='';document.getElementById('copySealProposal').disabled=true;const output=document.getElementById('sealBudgetMessage');output.value='';output.hidden=true;});
+  }
+  const suggest=document.getElementById('sealBudgetSuggest');if(suggest)suggest.onclick=()=>{const result=calculate(),host=document.getElementById('sealBudgetProposal');host.textContent=result.reason;const list=document.createElement('ul');for(const p of result.items){const li=document.createElement('li');li.textContent=`${p.name} (${p.category}) ${money(p.leaves)} ใบ · ${money(p.amount)} บาท`;list.append(li);}host.append(list);if(result.items.length)host.append(document.createTextNode(`รวมก่อนส่วนลด ${money(result.total)} บาท`));document.getElementById('copySealProposal').disabled=!result.items.length;};
+  const copy=document.getElementById('copySealProposal');if(copy)copy.onclick=async()=>{const result=calculate();if(!result.items.length){copy.disabled=true;return toast(result.reason);}const text='ขอให้ร้านตรวจรายการซีลตามงบ (ไม่ยืนยันซื้อ)\n'+result.items.map(p=>`${p.name} ${money(p.leaves)} ใบ · ${money(p.amount)} บาท`).join('\n')+`\nรวมก่อนส่วนลด ${money(result.total)} บาท\nกรุณายืนยันราคาและสต๊อกล่าสุด`;const output=document.getElementById('sealBudgetMessage');output.value=text;output.hidden=false;try{await copyText(text,'คัดลอกรายการล่าสุดแล้ว ยังไม่ได้ส่งหรือจองสินค้า');}catch(e){output.focus();output.select();toast('กรุณาคัดลอกข้อความด้วยตัวเอง');}};
   const preview=document.getElementById('previewRecovery');if(preview)preview.onclick=async()=>{if(preview.disabled)return;preview.disabled=true;try{const result=await apiPost({action:'previewBackupRestore',token:state.adminToken,backupId:document.getElementById('recoveryBackup').value});state.backupRestorePreview=result.plan;render();}catch(e){toast(e.message);preview.disabled=false;}};
 }
 const ITEM_INQUIRIES={
@@ -831,14 +857,16 @@ function compactCartEntries(){
   const remaining=new Map(state.cart.map(p=>[`${p.kind}|${p.id}`,p.quantity])),entries=[];
   for(const group of state.cartSetGroups||[]){
     if(group.quantity<=0||!group.memberIds.length||!group.memberIds.every(id=>(remaining.get(`SEAL|${id}`)||0)>=cartSetMemberQuantity(group,id)*group.quantity))continue;
-    const price=roundMoney(group.memberIds.reduce((sum,id)=>sum+(state.cart.find(p=>p.kind==='SEAL'&&p.id===id)?.price||0)*cartSetMemberQuantity(group,id),0));
-    entries.push({...group,groupKey:group.key,price});group.memberIds.forEach(id=>remaining.set(`SEAL|${id}`,remaining.get(`SEAL|${id}`)-cartSetMemberQuantity(group,id)*group.quantity));
+    const rawPrice=group.memberIds.reduce((sum,id)=>sum+(state.cart.find(p=>p.kind==='SEAL'&&p.id===id)?.price||0)*cartSetMemberQuantity(group,id),0),price=group.rareLeaf?group.setPrice:roundMoney(rawPrice);
+    entries.push({...group,groupKey:group.key,price,rawPrice});group.memberIds.forEach(id=>remaining.set(`SEAL|${id}`,remaining.get(`SEAL|${id}`)-cartSetMemberQuantity(group,id)*group.quantity));
   }
   state.cart.forEach(p=>{const quantity=remaining.get(`${p.kind}|${p.id}`)||0;if(quantity>0)entries.push({...p,quantity});});return entries.sort((a,b)=>{const rank=p=>p.kind==='SEAL'||p.groupKey?({AT:0,HT:1,CT:2,HP:3,DS:4,DE:5,EV:6,BL:7,ALL:8}[p.category]??9):10;return rank(a)-rank(b)||(a.kind==='SEAL'&&b.kind==='SEAL'?sealPackPrice(a)-sealPackPrice(b):Number(a.price)-Number(b.price))||String(a.name).localeCompare(String(b.name),'th');});
 }
 function changeCartSetQuantity(key,value){
   const entry=compactCartEntries().find(p=>p.groupKey===key),group=state.cartSetGroups.find(g=>g.key===key);if(!entry||!group)return;
+  if(group.rareLeaf&&(!Number.isSafeInteger(Number(value))||Number(value)<0||Number(value)>999)){renderPreservingScroll();return toast('ระบุจำนวนเต็ม 0–999 เซ็ต');}
   const next=Math.max(0,Math.floor(Number(value)||0)),delta=next-group.quantity;if(!Number.isSafeInteger(next))return toast('จำนวนไม่ถูกต้อง');
+  if(group.rareLeaf&&delta>0){addRareLeafSet(delta);renderPreservingScroll();return;}
   if(delta>0)for(const id of group.memberIds){const item=state.cart.find(p=>p.kind==='SEAL'&&p.id===id),product=state.seals.find(p=>p.id===id);if(!item||!product||item.unit!==saleUnit(product)||!canBuy(product)||item.quantity+delta*cartSetMemberQuantity(group,id)>productMaxQty(product)){toast(`เพิ่มไม่ได้: ${product?.name||'ซีล'} มีสต๊อกไม่พอหรือหน่วยขายเปลี่ยน`);renderPreservingScroll();return;}}
   group.memberIds.forEach(id=>{const item=state.cart.find(p=>p.kind==='SEAL'&&p.id===id);if(item)item.quantity+=delta*cartSetMemberQuantity(group,id);});state.cart=state.cart.filter(p=>p.quantity>0);group.quantity=next;if(!next)state.cartSetGroups=state.cartSetGroups.filter(g=>g.key!==key);state.copyNotice='';renderPreservingScroll();
 }
@@ -865,9 +893,10 @@ function categoryDiscountSummary(items=state.cart,settings=state.settings){
   return{categories,total:roundMoney(categories.reduce((sum,row)=>sum+row.amount,0))};
 }
 function pricingSummary(){
-  const subtotal=roundMoney(state.cart.reduce((sum,item)=>sum+item.price*item.quantity,0));
-  const sealSubtotal=roundMoney(state.cart.filter(item=>item.kind==='SEAL').reduce((sum,item)=>sum+item.price*item.quantity,0));
-  const categoryPricing=categoryDiscountSummary();let promotionDiscount=0;const messages=[];
+  const rounding=state.cartSetGroups?.some(g=>g.rareLeaf)?compactCartEntries().reduce((sum,item)=>sum+(item.rareLeaf?(item.price-item.rawPrice)*item.quantity:0),0):0;
+  const subtotal=roundMoney(state.cart.reduce((sum,item)=>sum+item.price*item.quantity,rounding));
+  const sealSubtotal=roundMoney(state.cart.filter(item=>item.kind==='SEAL').reduce((sum,item)=>sum+item.price*item.quantity,rounding));
+  const categoryPricing=categoryDiscountSummary(rounding?[...state.cart,{kind:'SEAL',lineTotal:rounding}]:state.cart);let promotionDiscount=0;const messages=[];
   const promos=(state.promotions||[]).filter(promoIsActive).sort((a,b)=>(Number(a.priority)||999)-(Number(b.priority)||999));
   for(const p of promos){
     const min=Number(p.minSpend)||0;if(subtotal<min)continue;
@@ -879,7 +908,7 @@ function pricingSummary(){
   }
   promotionDiscount=roundMoney(Math.min(subtotal,promotionDiscount));
   const categoryDiscountTotal=categoryPricing.total,discount=roundMoney(Math.min(subtotal,categoryDiscountTotal+promotionDiscount));
-  return{subtotal,sealSubtotal,categoryDiscounts:categoryPricing.categories,categoryDiscountTotal,promotionDiscount,discount,total:roundMoney(Math.max(0,subtotal-discount)),messages};
+  return{subtotal,sealSubtotal,sealSetRounding:roundMoney(rounding),categoryDiscounts:categoryPricing.categories,categoryDiscountTotal,promotionDiscount,discount,total:roundMoney(Math.max(0,subtotal-discount)),messages};
 }
 
 function categoryDiscountHtml(pricing){
@@ -956,6 +985,7 @@ function orderText(customer = {}) {
   if(groups.SEAL.length){if(itemLines.length)itemLines.push('');itemLines.push('🦖 ซีล');let last='';groups.SEAL.forEach(item=>{if(item.category!==last){itemLines.push('',item.category||'ไม่ระบุสาย');last=item.category;}itemLines.push(normalLine(item));});}
   if(groups.TMONEY.length){if(itemLines.length)itemLines.push('');itemLines.push('💰 เงิน T',...groups.TMONEY.map(item=>`${money(item.quantity)}T × ${money(item.price)} บาท — ${money(item.price*item.quantity)} บาท`));}
   const categoryRows=pricing.categoryDiscounts.filter(row=>row.subtotal>0&&row.percent>0&&row.amount>0),pricingLines=[`รวมก่อนลด ${money(pricing.subtotal)} บาท`];
+  if(pricing.sealSetRounding)pricingLines.unshift(`ส่วนต่างปัดราคาเซ็ต +${money(pricing.sealSetRounding)} บาท (รวมในยอดแล้ว)`);
   const showCategories=settingEnabled(state.settings,'orderCopyShowCategoryDiscounts',true);
   if(showCategories)pricingLines.push(...categoryRows.map(row=>`ลด${row.label} ${money(row.percent)}% −${money(row.amount)} บาท`));
   if(showCategories&&settingEnabled(state.settings,'orderCopyShowPromotions',true)&&pricing.promotionDiscount>0)pricingLines.push(`ลดโปรโมชั่น −${money(pricing.promotionDiscount)} บาท`);
@@ -2243,7 +2273,8 @@ function bind() {
     if(!input.value||!Number.isSafeInteger(budget)||budget<1||budget>10000000){toast('กรุณากรอกงบเป็นจำนวนบาทเต็ม มากกว่า 0');input.focus();return;}
     const url=safeExternalUrl(cfg.messengerUrl||state.settings.messengerUrl);
     if(!url){toast('ยังไม่ได้ตั้งค่าลิงก์ Messenger ของร้าน');return;}
-    const text=configuredSettingText(state.settings,'sealBudgetTemplate','สวัสดีครับ/ค่ะ อยากให้ร้านช่วยจัดซีลตามงบ {budget} บาท').replace(/\{budget\}/g,money(budget));
+    const leaves=document.getElementById('sealBudgetLeaves')?.value==='3000'?3000:1000;
+    const text=configuredSettingText(state.settings,'sealBudgetTemplate','สวัสดีครับ/ค่ะ อยากให้ร้านช่วยจัดซีลตามงบ {budget} บาท').replace(/\{budget\}/g,money(budget))+`\nจำนวนที่ต้องการ: ตัวละ ${money(leaves)} ใบ`;
     const output=document.getElementById('sealBudgetMessage');output.value=text;output.hidden=false;
     const chat=window.open(url,'_blank','noopener,noreferrer');
     try{await copyText(text,'คัดลอกแล้ว กรุณาวางข้อความและกดส่งใน Messenger');}catch(error){output.focus();output.select();toast('คัดลอกอัตโนมัติไม่ได้ กรุณาคัดลอกข้อความในช่องนี้แล้ววางใน Messenger');}
@@ -2278,7 +2309,7 @@ function bind() {
   const clear = document.getElementById('clearCartBtn'); if (clear) clear.onclick = () => { state.cart = [];state.cartSetGroups=[];state.copyNotice='';renderPreservingScroll(); };
   const copy = document.getElementById('copyOnlyBtn'); if (copy) copy.onclick = async () => {if(copy.disabled)return;copy.disabled=true;try{saveRecentOrderSnapshot();await copyText(orderText(customerValues()),'คัดลอกแล้ว นำรายการไปวางในแชต Facebook ของร้านได้เลย');state.copyNotice='คัดลอกแล้ว นำรายการไปวางในแชต Facebook ของร้านได้เลย';render();}catch(error){toast('คัดลอกไม่สำเร็จ กรุณาลองใหม่');}finally{if(copy.isConnected)copy.disabled=false;}};
   const favoriteCart=document.getElementById('favoriteCartBtn');if(favoriteCart)favoriteCart.onclick=()=>{state.cart.forEach((item)=>{const p=allProducts().find((x)=>x.id===item.id&&x.kind===item.kind);if(p&&!isFavorite(p))state.favoriteKeys.push(productKey(p));});state.favoriteKeys=[...new Set(state.favoriteKeys)].slice(0,300);localStorage.setItem('dmo_favorites',JSON.stringify(state.favoriteKeys));toast('บันทึกรายการโปรดแล้ว');render();};
-  const saveOrder = document.getElementById('saveOrderBtn'); if (saveOrder) saveOrder.onclick = async () => { if(state.orderSubmitting)return;try { const remaining=Math.ceil((state.orderCooldownUntil-Date.now())/1000);if(remaining>0)throw Error(`กรุณารอ ${remaining} วินาทีก่อนส่งออเดอร์ใหม่`);const customer = customerValues(); if(!customer.tamer.trim()) throw Error('กรุณากรอกชื่อเทมเมอร์'); if(!customer.contact.trim()) throw Error('กรุณากรอกชื่อ Facebook'); if(!state.cart.length) throw Error('ยังไม่มีสินค้าในรายการ');const fingerprint=JSON.stringify({customer,items:state.cart.map(x=>({id:x.id,kind:x.kind,quantity:x.quantity}))});if(state.pendingOrderFingerprint!==fingerprint){state.pendingOrderFingerprint=fingerprint;state.pendingOrderRequestId=(crypto.randomUUID?crypto.randomUUID():`${Date.now()}-${Math.random().toString(16).slice(2)}`);}const website=document.getElementById('orderWebsite')?.value||'';state.orderSubmitting=true;render();const data = await apiPost({ action: 'createOrder', requestId:state.pendingOrderRequestId, customer, items: state.cart, website, startedAt:state.orderFormStartedAt }); if(!data.orderId) throw Error('ระบบยังไม่เปิดรับออเดอร์ กรุณาติดต่อร้าน'); saveRecentOrderSnapshot(data.orderId); state.orderSuccess={orderId:data.orderId,total:Number(data.total||0),discount:Number(data.discount||0)};const cooldown=Math.max(5,Math.min(120,Number(state.settings.orderSubmitCooldownSeconds)||30));state.orderCooldownUntil=Date.now()+cooldown*1000;localStorage.setItem('dmo_order_cooldown_until',String(state.orderCooldownUntil));state.orderFormStartedAt=Date.now();state.cart=[];state.pendingOrderRequestId='';state.pendingOrderFingerprint='';state.orderSubmitting=false;render();setTimeout(()=>{if(state.page==='shop')render();},cooldown*1000+100);window.scrollTo({top:0,behavior:'smooth'}); } catch (error) { state.orderSubmitting=false;render();toast(error.message); } };
+  const saveOrder = document.getElementById('saveOrderBtn'); if (saveOrder) saveOrder.onclick = async () => { if(state.orderSubmitting)return;if(state.cartSetGroups.some(g=>g.rareLeaf))return toast('เซ็ตนี้ต้องคัดลอกรายการให้ร้านยืนยัน');try { const remaining=Math.ceil((state.orderCooldownUntil-Date.now())/1000);if(remaining>0)throw Error(`กรุณารอ ${remaining} วินาทีก่อนส่งออเดอร์ใหม่`);const customer = customerValues(); if(!customer.tamer.trim()) throw Error('กรุณากรอกชื่อเทมเมอร์'); if(!customer.contact.trim()) throw Error('กรุณากรอกชื่อ Facebook'); if(!state.cart.length) throw Error('ยังไม่มีสินค้าในรายการ');const fingerprint=JSON.stringify({customer,items:state.cart.map(x=>({id:x.id,kind:x.kind,quantity:x.quantity}))});if(state.pendingOrderFingerprint!==fingerprint){state.pendingOrderFingerprint=fingerprint;state.pendingOrderRequestId=(crypto.randomUUID?crypto.randomUUID():`${Date.now()}-${Math.random().toString(16).slice(2)}`);}const website=document.getElementById('orderWebsite')?.value||'';state.orderSubmitting=true;render();const data = await apiPost({ action: 'createOrder', requestId:state.pendingOrderRequestId, customer, items: state.cart, website, startedAt:state.orderFormStartedAt }); if(!data.orderId) throw Error('ระบบยังไม่เปิดรับออเดอร์ กรุณาติดต่อร้าน'); saveRecentOrderSnapshot(data.orderId); state.orderSuccess={orderId:data.orderId,total:Number(data.total||0),discount:Number(data.discount||0)};const cooldown=Math.max(5,Math.min(120,Number(state.settings.orderSubmitCooldownSeconds)||30));state.orderCooldownUntil=Date.now()+cooldown*1000;localStorage.setItem('dmo_order_cooldown_until',String(state.orderCooldownUntil));state.orderFormStartedAt=Date.now();state.cart=[];state.pendingOrderRequestId='';state.pendingOrderFingerprint='';state.orderSubmitting=false;render();setTimeout(()=>{if(state.page==='shop')render();},cooldown*1000+100);window.scrollTo({top:0,behavior:'smooth'}); } catch (error) { state.orderSubmitting=false;render();toast(error.message); } };
   const adminEntry = document.getElementById('adminEntry'); if (adminEntry) adminEntry.onclick = () => { state.page = 'admin'; location.hash = 'admin'; if (state.adminToken) loadAdmin(false); else render(); };
   const backShop = document.getElementById('backShopBtn'); if (backShop) backShop.onclick = () => { state.page = 'shop'; location.hash = ''; if(!state.publicLoadedAt)loadData(true);else{render();autoRefreshPublic();} };
   const login = document.getElementById('loginBtn'); if (login) {login.onclick=submitAdminLogin;['adminId','adminPassword'].forEach(id=>{const input=document.getElementById(id);if(input)input.onkeydown=event=>{if(event.key==='Enter'){event.preventDefault();submitAdminLogin();}};});}
