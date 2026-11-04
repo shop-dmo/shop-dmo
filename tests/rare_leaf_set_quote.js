@@ -23,6 +23,11 @@ const data={rareLeafSet:quote,seals:members.map(p=>({...p,category:'AT',unit:'�
   reply=copy();reply.rareLeafSet.price=3;await btn.onclick();assert.equal(x.state.cartSetGroups.length,0);
   reply.seals[1].availableStock=0;await btn.onclick();assert.equal(x.state.cart.length,1);assert.equal(x.state.cart[0].quantity,1);
   x.state.offline=true;const previous=reads;await btn.onclick();assert.equal(reads,previous);
+  x.state.settings.categoryDiscountSealPercent=0;
+  x.state.cart.push({id:'demo-item',name:'Demo item',kind:'ITEM',price:408.29,quantity:1,unit:'ชิ้น'});
+  assert.equal(x.pricingSummary().total,408.89);
+  assert.match(x.orderText(),/ยอดสุทธิ 408 บาท/);
+  assert.match(x.orderText(),/รวมก่อนลด 408\.89 บาท/);
  }
  console.log('PASS readable/minified rare cart: fresh quote, atomic stock checks, overlap, resizing, removal, discounts and copied rounded total');
 })().catch(error=>{console.error(error);process.exitCode=1;});

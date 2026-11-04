@@ -943,7 +943,7 @@ function categoryDiscountHtml(pricing){
 
 function cartPanel() {
   const pricing = pricingSummary();
-  const total = pricing.total;
+  const total = Math.floor(pricing.total);
   const subtotal = pricing.subtotal;
   const threshold = Number(state.settings.promoThreshold) || 100;
   const promotionSets = Math.floor(pricing.sealSubtotal / threshold);
@@ -995,7 +995,7 @@ function cartProductSnapshot(product,quantity){return{id:product.id,name:product
 
 function orderText(customer = {}) {
   const pricing = pricingSummary();
-  const total = pricing.total;
+  const total = Math.floor(pricing.total);
   const threshold = Number(state.settings.promoThreshold) || 100;
   const promotionSets = Math.floor(pricing.sealSubtotal / threshold);
   const remaining = pricing.sealSubtotal ? threshold - (pricing.sealSubtotal % threshold) : threshold;
